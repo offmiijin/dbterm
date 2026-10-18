@@ -2,7 +2,6 @@
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
-use ratatui::style::{Modifier, Style, Stylize};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
     Block, BorderType, Cell, HighlightSpacing, List, ListItem, Paragraph, Row, Table, TableState,
@@ -10,6 +9,7 @@ use ratatui::widgets::{
 
 use crate::app::{App, Focus, Status};
 use crate::db::{ROW_LIMIT, TableData};
+use crate::theme;
 
 const KEYS: &str = "q sair · tab foco · j/k mover · enter abrir · r recarregar · g/G topo/fim";
 /// Largura máxima de uma coluna da grade.
@@ -37,6 +37,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         ..
     } = app;
 
+    frame.render_widget(Block::new().style(theme::base()), frame.area());
+
     let [header, body, footer] = Layout::vertical([
         Constraint::Length(1),
         Constraint::Min(1),
@@ -58,7 +60,7 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
             *focus == Focus::Tables,
         ))
         .highlight_symbol("❯ ")
-        .highlight_style(Style::new().add_modifier(Modifier::REVERSED));
+        .highlight_style(theme::selected());
     frame.render_stateful_widget(list, side, list_state);
 
     draw_data(
@@ -79,15 +81,15 @@ fn draw_header(frame: &mut Frame, area: Rect, server: &str, database: &str, tabl
         server
     };
     let mut line = Line::from(vec![
-        " dbterm ".bold().cyan(),
-        "·".dark_gray(),
-        format!(" {server} ").into(),
-        "·".dark_gray(),
-        format!(" schema: {database} ").into(),
+        Span::styled(" dbterm ", theme::accent()),
+        Span::styled("·", theme::muted()),
+        Span::styled(format!(" {server} "), theme::text()),
+        Span::styled("·", theme::muted()),
+        Span::styled(format!(" schema: {database} "), theme::text()),
     ]);
     if let Some(table) = table {
-        line.push_span("·".dark_gray());
-        line.push_span(format!(" tabela: {table} "));
+        line.push_span(Span::styled("·", theme::muted()));
+        line.push_span(Span::styled(format!(" tabela: {table} "), theme::text()));
     }
     frame.render_widget(Paragraph::new(line), area);
 }
@@ -102,14 +104,14 @@ fn draw_data(
     let Some(data) = data else {
         let hint = Paragraph::new("selecione uma tabela e pressione enter")
             .block(panel(String::from("dados"), focused))
-            .style(Style::new().dark_gray());
+            .style(theme::muted());
         frame.render_widget(hint, area);
         return;
     };
 
     let title = format!("dados · {} linhas", data.rows.len());
     let colunas = column_widths(data, area.width);
-    let header = Row::new(header_cells(data, &colunas)).style(Style::new().bold());
+    let header = Row::new(header_cells(data, &colunas)).style(theme::header());
     let rows: Vec<Row> = data
         .rows
         .iter()
@@ -122,13 +124,13 @@ fn draw_data(
         .column_spacing(GAP)
         .highlight_symbol("❯ ")
         .highlight_spacing(HighlightSpacing::Always)
-        .row_highlight_style(Style::new().add_modifier(Modifier::REVERSED));
+        .row_highlight_style(theme::selected());
     frame.render_stateful_widget(table, area, state);
 }
 
 /// A linha vertical que separa duas colunas.
 fn rule() -> Cell<'static> {
-    Cell::new(RULE).style(Style::new().dark_gray())
+    Cell::new(RULE).style(theme::muted())
 }
 
 /// Cabeçalho com a divisória entre as colunas.
@@ -160,7 +162,7 @@ fn cells<'a>(row: &'a [String], colunas: &[usize]) -> Vec<Cell<'a>> {
             None => Cell::new(value.as_str()),
         };
         cells.push(if value == "NULL" {
-            cell.style(Style::new().dark_gray())
+            cell.style(theme::muted())
         } else {
             cell
         });
@@ -170,10 +172,10 @@ fn cells<'a>(row: &'a [String], colunas: &[usize]) -> Vec<Cell<'a>> {
 
 fn draw_footer(frame: &mut Frame, area: Rect, status: &Status) {
     let (text, style) = match status {
-        Status::Connecting => (String::from("conectando…"), Style::new().yellow()),
-        Status::Loading(table) => (format!("carregando {table}…"), Style::new().yellow()),
-        Status::Ready => (format!("LIMIT {ROW_LIMIT}"), Style::new().dark_gray()),
-        Status::Failed(message) => (format!("erro: {message}"), Style::new().red()),
+        Status::Connecting => (String::from("conectando…"), theme::warning()),
+        Status::Loading(table) => (format!("carregando {table}…"), theme::warning()),
+        Status::Ready => (format!("LIMIT {ROW_LIMIT}"), theme::muted()),
+        Status::Failed(message) => (format!("erro: {message}"), theme::error()),
     };
 
     let width = (KEYS.chars().count() as u16).min(area.width.saturating_sub(MIN_STATUS));
@@ -181,22 +183,15 @@ fn draw_footer(frame: &mut Frame, area: Rect, status: &Status) {
         Layout::horizontal([Constraint::Fill(1), Constraint::Length(width)]).areas(area);
     frame.render_widget(Paragraph::new(Line::from(text).style(style)), left);
     frame.render_widget(
-        Paragraph::new(KEYS)
-            .style(Style::new().dark_gray())
-            .right_aligned(),
+        Paragraph::new(KEYS).style(theme::muted()).right_aligned(),
         right,
     );
 }
 
 fn panel(title: String, focused: bool) -> Block<'static> {
-    let border = if focused {
-        Style::new().cyan()
-    } else {
-        Style::new().dark_gray()
-    };
     Block::bordered()
         .border_type(BorderType::Rounded)
-        .border_style(border)
+        .border_style(theme::border(focused))
         .title(format!(" {title} "))
 }
 
@@ -416,5 +411,18 @@ mod tests {
         app.status = Status::Failed(String::from("sem permissão"));
         let screen = screen(&mut app);
         assert!(screen.contains("erro: sem permissão"), "{screen}");
+    }
+
+    #[test]
+    fn aplica_paleta_catppuccin_macchiato() {
+        let mut app = app_com_dados();
+        let mut terminal = Terminal::new(TestBackend::new(64, 12)).expect("terminal de teste");
+        terminal
+            .draw(|frame| draw(frame, &mut app))
+            .expect("desenho");
+        // O primeiro caractere é o espaço de " dbterm ": fundo `base` e accent `mauve`.
+        let inicio = &terminal.backend().buffer().content()[0];
+        assert_eq!(inicio.bg, crate::theme::BASE);
+        assert_eq!(inicio.fg, crate::theme::MAUVE);
     }
 }
