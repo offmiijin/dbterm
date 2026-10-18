@@ -17,6 +17,8 @@ pub const ROW_LIMIT: usize = 200;
 pub struct TableData {
     pub columns: Vec<String>,
     pub rows: Vec<Vec<String>>,
+    /// Índices das colunas da chave primária; vazio quando a tabela não tem PK.
+    pub primary_key: Vec<usize>,
 }
 
 #[derive(Debug)]
@@ -25,13 +27,31 @@ pub enum Request {
     Tables,
     /// Busca as primeiras [`ROW_LIMIT`] linhas de uma tabela.
     Rows { table: String },
+    /// Grava `value` (`None` = `NULL`) na coluna `column` da linha identificada
+    /// pelos valores atuais da chave primária.
+    Update {
+        table: String,
+        column: String,
+        value: Option<String>,
+        key: Vec<(String, String)>,
+    },
 }
 
 #[derive(Debug)]
 pub enum Response {
-    Connected { server: String, database: String },
+    Connected {
+        server: String,
+        database: String,
+    },
     Tables(Vec<String>),
-    Rows { table: String, data: TableData },
+    Rows {
+        table: String,
+        data: TableData,
+    },
+    /// O `UPDATE` foi aplicado; a UI recarrega a tabela.
+    Updated {
+        table: String,
+    },
     Failed(String),
 }
 
@@ -97,6 +117,15 @@ fn worker(url: &str, tx: &Sender<Response>, rx: &Receiver<Request>) {
                 Ok(data) => Response::Rows { table, data },
                 Err(err) => Response::Failed(err.to_string()),
             },
+            Request::Update {
+                table,
+                column,
+                value,
+                key,
+            } => match update(&mut conn, &table, &column, value, &key) {
+                Ok(()) => Response::Updated { table },
+                Err(err) => Response::Failed(err),
+            },
         };
         if tx.send(response).is_err() {
             return;
@@ -136,7 +165,65 @@ fn rows(conn: &mut Conn, table: &str) -> mysql::Result<TableData> {
             rows.push(row?.unwrap().iter().map(cell).collect());
         }
     }
-    Ok(TableData { columns, rows })
+    drop(result);
+
+    let primary_key = primary_key(conn, table, &columns)?;
+    Ok(TableData {
+        columns,
+        rows,
+        primary_key,
+    })
+}
+
+/// Índices das colunas que formam a chave primária da tabela.
+fn primary_key(conn: &mut Conn, table: &str, columns: &[String]) -> mysql::Result<Vec<usize>> {
+    let names: Vec<String> = conn.exec(
+        "SELECT column_name FROM information_schema.key_column_usage \
+         WHERE table_schema = DATABASE() AND table_name = ? AND constraint_name = 'PRIMARY' \
+         ORDER BY ordinal_position",
+        (table,),
+    )?;
+    Ok(names
+        .iter()
+        .filter_map(|name| columns.iter().position(|column| column == name))
+        .collect())
+}
+
+/// Grava `value` na coluna `column` da linha cuja chave primária está em `key`.
+fn update(
+    conn: &mut Conn,
+    table: &str,
+    column: &str,
+    value: Option<String>,
+    key: &[(String, String)],
+) -> Result<(), String> {
+    if key.is_empty() {
+        return Err(String::from("edição exige chave primária"));
+    }
+    let sql = update_sql(table, column, key);
+    let mut params = Vec::with_capacity(1 + key.len());
+    params.push(value.map_or(Value::NULL, Value::from));
+    params.extend(key.iter().map(|(_, value)| Value::from(value.as_str())));
+    conn.exec_drop(sql, params).map_err(|err| err.to_string())
+}
+
+/// `UPDATE` parametrizado: um `?` para o valor novo e um por coluna da PK.
+fn update_sql(table: &str, column: &str, key: &[(String, String)]) -> String {
+    let condition = key
+        .iter()
+        .map(|(name, _)| format!("`{}` = ?", quote(name)))
+        .collect::<Vec<_>>()
+        .join(" AND ");
+    format!(
+        "UPDATE `{}` SET `{}` = ? WHERE {condition}",
+        quote(table),
+        quote(column)
+    )
+}
+
+/// Escapa um identificador para ir entre crases.
+fn quote(identifier: &str) -> String {
+    identifier.replace('`', "``")
 }
 
 /// Formata um valor do MySQL como texto de célula.
@@ -166,6 +253,36 @@ fn cell(value: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn monta_update_parametrizado() {
+        let chave = vec![(String::from("id"), String::from("1"))];
+        assert_eq!(
+            update_sql("users", "notes", &chave),
+            "UPDATE `users` SET `notes` = ? WHERE `id` = ?"
+        );
+    }
+
+    #[test]
+    fn update_usa_and_em_chave_composta() {
+        let chave = vec![
+            (String::from("a"), String::from("1")),
+            (String::from("b"), String::from("2")),
+        ];
+        assert_eq!(
+            update_sql("t", "c", &chave),
+            "UPDATE `t` SET `c` = ? WHERE `a` = ? AND `b` = ?"
+        );
+    }
+
+    #[test]
+    fn update_escapa_crases_nos_identificadores() {
+        let chave = vec![(String::from("i`d"), String::from("1"))];
+        assert_eq!(
+            update_sql("we`ird", "na`me", &chave),
+            "UPDATE `we``ird` SET `na``me` = ? WHERE `i``d` = ?"
+        );
+    }
 
     /// Não precisa de servidor: a porta 1 recusa na hora e o erro volta
     /// pelo canal, que é o caminho que a UI usa para mostrar falhas.

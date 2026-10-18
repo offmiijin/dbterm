@@ -101,6 +101,55 @@ fn container_mysql_serve_dados_para_a_tui() {
     let eventos = paginas(&db, "events");
     assert_eq!(eventos.rows.len(), ROW_LIMIT);
 
+    // Primeiro caminho de escrita: a chave primária vem junto com a página.
+    let id_idx = usuarios
+        .columns
+        .iter()
+        .position(|coluna| coluna == "id")
+        .expect("coluna id");
+    let notes_idx = usuarios
+        .columns
+        .iter()
+        .position(|coluna| coluna == "notes")
+        .expect("coluna notes");
+    assert_eq!(usuarios.primary_key, vec![id_idx]);
+
+    // Atualiza o `notes` de um usuário gerado (30) e restaura para NULL.
+    let alvo = usuarios
+        .rows
+        .iter()
+        .position(|linha| linha[id_idx] == "30")
+        .expect("usuário 30");
+    let id = usuarios.rows[alvo][id_idx].clone();
+    db.request(Request::Update {
+        table: String::from("users"),
+        column: String::from("notes"),
+        value: Some(String::from("editado pela tui")),
+        key: vec![(String::from("id"), id.clone())],
+    });
+    match esperar(&db, Duration::from_secs(30)) {
+        Some(Response::Updated { .. }) => {}
+        outra => panic!("esperava Updated depois do UPDATE, veio {outra:?}"),
+    }
+    let depois = paginas(&db, "users");
+    let atualizado = depois
+        .rows
+        .iter()
+        .find(|linha| linha[id_idx] == id)
+        .expect("usuário atualizado");
+    assert_eq!(atualizado[notes_idx], "editado pela tui");
+
+    db.request(Request::Update {
+        table: String::from("users"),
+        column: String::from("notes"),
+        value: None,
+        key: vec![(String::from("id"), id)],
+    });
+    match esperar(&db, Duration::from_secs(30)) {
+        Some(Response::Updated { .. }) => {}
+        outra => panic!("esperava Updated ao restaurar, veio {outra:?}"),
+    }
+
     let derrubar = subiu.map_or_else(
         || String::from("podman compose"),
         |compose| compose.join(" "),

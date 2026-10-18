@@ -4,14 +4,16 @@ use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{
-    Block, BorderType, Cell, HighlightSpacing, List, ListItem, Paragraph, Row, Table, TableState,
+    Block, BorderType, Cell, Clear, HighlightSpacing, List, ListItem, Paragraph, Row, Table,
+    TableState,
 };
 
-use crate::app::{App, Focus, Status};
+use crate::app::{App, Edit, Focus, Mode, Status};
 use crate::db::{ROW_LIMIT, TableData};
 use crate::theme;
 
-const KEYS: &str = "q sair · tab foco · j/k mover · enter abrir · r recarregar · g/G topo/fim";
+const KEYS: &str =
+    "q sair · tab foco · j/k mover · enter abrir/colunas · r recarregar · g/G topo/fim";
 /// Largura máxima de uma coluna da grade.
 const MAX_COL: usize = 28;
 /// Espaço que a mensagem de estado nunca perde para a linha de atalhos.
@@ -22,6 +24,19 @@ const GAP: u16 = 2;
 const RULE: &str = "│";
 /// Largura de [`RULE`] em colunas do terminal.
 const RULE_WIDTH: u16 = 1;
+/// Cada coluna de dados é seguida por uma célula de divisória, então a `Table`
+/// vê as colunas de dados nos índices 0, 2, 4, ... e as divisórias em 1, 3, 5, ...
+const RULE_STRIDE: usize = 2;
+
+/// Índice da coluna de dados `index` no widget `Table`.
+pub fn table_column(index: usize) -> usize {
+    index * RULE_STRIDE
+}
+
+/// Índice da coluna de dados a partir do índice de coluna do widget `Table`.
+pub fn data_column(table_column: usize) -> usize {
+    table_column / RULE_STRIDE
+}
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
     let App {
@@ -32,6 +47,8 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         data,
         focus,
         status,
+        mode,
+        edit,
         list_state,
         table_state,
         ..
@@ -69,9 +86,18 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         data.as_ref(),
         *focus == Focus::Data,
         table_state,
+        mode,
     );
 
-    draw_footer(frame, footer, status);
+    draw_footer(frame, footer, status, mode);
+    draw_overlays(
+        frame,
+        frame.area(),
+        mode,
+        edit.as_ref(),
+        data.as_ref(),
+        current.as_deref(),
+    );
 }
 
 fn draw_header(frame: &mut Frame, area: Rect, server: &str, database: &str, table: Option<&str>) {
@@ -100,6 +126,7 @@ fn draw_data(
     data: Option<&TableData>,
     focused: bool,
     state: &mut TableState,
+    mode: &Mode,
 ) {
     let Some(data) = data else {
         let hint = Paragraph::new("selecione uma tabela e pressione enter")
@@ -109,7 +136,16 @@ fn draw_data(
         return;
     };
 
-    let title = format!("dados · {} linhas", data.rows.len());
+    let coluna = state
+        .selected_column()
+        .map(data_column)
+        .and_then(|index| data.columns.get(index));
+    let title = match (mode, coluna) {
+        (Mode::Columns | Mode::Edit | Mode::Confirm | Mode::ConfirmAgain, Some(nome)) => {
+            format!("dados · {} linhas · col: {nome}", data.rows.len())
+        }
+        _ => format!("dados · {} linhas", data.rows.len()),
+    };
     let colunas = column_widths(data, area.width);
     let header = Row::new(header_cells(data, &colunas)).style(theme::header());
     let rows: Vec<Row> = data
@@ -124,7 +160,8 @@ fn draw_data(
         .column_spacing(GAP)
         .highlight_symbol("❯ ")
         .highlight_spacing(HighlightSpacing::Always)
-        .row_highlight_style(theme::selected());
+        .row_highlight_style(theme::selected())
+        .cell_highlight_style(theme::cell_selected());
     frame.render_stateful_widget(table, area, state);
 }
 
@@ -170,21 +207,105 @@ fn cells<'a>(row: &'a [String], colunas: &[usize]) -> Vec<Cell<'a>> {
     cells
 }
 
-fn draw_footer(frame: &mut Frame, area: Rect, status: &Status) {
+fn draw_footer(frame: &mut Frame, area: Rect, status: &Status, mode: &Mode) {
     let (text, style) = match status {
         Status::Connecting => (String::from("conectando…"), theme::warning()),
         Status::Loading(table) => (format!("carregando {table}…"), theme::warning()),
         Status::Ready => (format!("LIMIT {ROW_LIMIT}"), theme::muted()),
+        Status::Notice(message) => (message.clone(), theme::warning()),
         Status::Failed(message) => (format!("erro: {message}"), theme::error()),
     };
+    let keys = match mode {
+        Mode::Rows => KEYS,
+        Mode::Columns => "h/l coluna · enter editar · esc voltar",
+        Mode::Edit => "enter continuar · esc cancelar",
+        Mode::Confirm => "enter sim · esc voltar",
+        Mode::ConfirmAgain => "enter gravar · esc voltar",
+    };
 
-    let width = (KEYS.chars().count() as u16).min(area.width.saturating_sub(MIN_STATUS));
+    let width = (keys.chars().count() as u16).min(area.width.saturating_sub(MIN_STATUS));
     let [left, right] =
         Layout::horizontal([Constraint::Fill(1), Constraint::Length(width)]).areas(area);
     frame.render_widget(Paragraph::new(Line::from(text).style(style)), left);
     frame.render_widget(
-        Paragraph::new(KEYS).style(theme::muted()).right_aligned(),
+        Paragraph::new(keys).style(theme::muted()).right_aligned(),
         right,
+    );
+}
+
+/// Popups de edição e das duas confirmações.
+fn draw_overlays(
+    frame: &mut Frame,
+    area: Rect,
+    mode: &Mode,
+    edit: Option<&Edit>,
+    data: Option<&TableData>,
+    table: Option<&str>,
+) {
+    let (Some(edit), Some(data)) = (edit, data) else {
+        return;
+    };
+    let Some(column) = data.columns.get(edit.column) else {
+        return;
+    };
+    let table = table.unwrap_or("?");
+
+    match mode {
+        Mode::Edit => {
+            let lines = vec![
+                Line::from(format!("{table}.{column}")).style(theme::muted()),
+                Line::from(format!("{}▏", edit.input)).style(theme::text()),
+                Line::from("enter continuar · esc cancelar").style(theme::muted()),
+            ];
+            popup(frame, area, "editar", lines);
+        }
+        Mode::Confirm => {
+            let novo = if edit.input.is_empty() {
+                "NULL"
+            } else {
+                edit.input.as_str()
+            };
+            let lines = vec![
+                Line::from(format!("{table}.{column}")).style(theme::muted()),
+                Line::from(format!("De: {}", edit.original)),
+                Line::from(format!("Para: {novo}")),
+                Line::from("Deseja realmente alterar este registro?"),
+                Line::from("enter sim · esc voltar").style(theme::muted()),
+            ];
+            popup(frame, area, "alterar registro", lines);
+        }
+        Mode::ConfirmAgain => {
+            let lines = vec![
+                Line::from("Esta alteração será gravada no banco."),
+                Line::from(""),
+                Line::from("Tem certeza?"),
+                Line::from("enter gravar · esc voltar").style(theme::muted()),
+            ];
+            popup(frame, area, "confirmar", lines);
+        }
+        Mode::Rows | Mode::Columns => {}
+    }
+}
+
+/// Caixa centralizada que cobre o conteúdo por baixo.
+fn popup(frame: &mut Frame, area: Rect, title: &str, lines: Vec<Line>) {
+    let width = area.width.saturating_sub(4).min(64);
+    let height = (lines.len() as u16 + 2).min(area.height);
+    if width < 10 || height < 3 {
+        return;
+    }
+    let x = area.x + (area.width - width) / 2;
+    let y = area.y + (area.height - height) / 2;
+    let area = Rect::new(x, y, width, height);
+    frame.render_widget(Clear, area);
+    let block = Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(theme::accent())
+        .style(theme::base())
+        .title(format!(" {title} "));
+    frame.render_widget(
+        Paragraph::new(lines).block(block).style(theme::base()),
+        area,
     );
 }
 
@@ -308,6 +429,7 @@ mod tests {
                 vec![String::from("1"), String::from("ana")],
                 vec![String::from("2"), String::from("NULL")],
             ],
+            primary_key: vec![0],
         });
         app.status = Status::Ready;
         app
@@ -358,6 +480,7 @@ mod tests {
                 String::from("cliente desde o lançamento"),
                 String::from("{\"plano\": \"pro\"}"),
             ]],
+            primary_key: vec![0],
         });
         app.status = Status::Ready;
         app
@@ -399,6 +522,7 @@ mod tests {
                 String::from("1"),
                 String::from("um valor bem comprido que nao cabe na coluna"),
             ]],
+            primary_key: vec![0],
         });
         let screen = screen(&mut app);
         assert!(screen.contains('…'), "{screen}");
@@ -411,6 +535,26 @@ mod tests {
         app.status = Status::Failed(String::from("sem permissão"));
         let screen = screen(&mut app);
         assert!(screen.contains("erro: sem permissão"), "{screen}");
+    }
+
+    #[test]
+    fn confirmacao_dupla_aparece_na_tela() {
+        let mut app = app_com_dados();
+        app.mode = crate::app::Mode::Confirm;
+        app.edit = Some(crate::app::Edit {
+            row: 0,
+            column: 1,
+            original: String::from("ana"),
+            input: String::from("bia"),
+        });
+        let tela = screen(&mut app);
+        assert!(tela.contains("De: ana"), "{tela}");
+        assert!(tela.contains("Para: bia"), "{tela}");
+        assert!(tela.contains("Deseja realmente alterar"), "{tela}");
+
+        app.mode = crate::app::Mode::ConfirmAgain;
+        let tela = screen(&mut app);
+        assert!(tela.contains("Tem certeza?"), "{tela}");
     }
 
     #[test]

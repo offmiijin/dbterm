@@ -66,6 +66,11 @@ pub fn selected() -> Style {
     Style::new().bg(SURFACE0)
 }
 
+/// Célula selecionada no modo coluna.
+pub fn cell_selected() -> Style {
+    Style::new().fg(TEXT).bg(SURFACE1)
+}
+
 /// Borda de painel, acesa quando o painel tem o foco.
 pub fn border(focused: bool) -> Style {
     Style::new().fg(if focused { MAUVE } else { SURFACE1 })
