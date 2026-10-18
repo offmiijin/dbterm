@@ -8,8 +8,12 @@
 -- acentos, kanji, emoji, JSON, texto com quebra de linha, decimal, enum,
 -- booleano e uma tabela grande o bastante para estourar o LIMIT 200 do dbterm.
 
-USE dbterm;
+-- O client do MySQL dentro do container tira o charset do locale, que ali é
+-- POSIX — ou seja, latin1. Sem a linha abaixo, o arquivo (UTF-8) entra
+-- corrompido e "Dora 石" é gravado como "Dora çŸ³".
+SET NAMES utf8mb4;
 
+USE dbterm;
 CREATE TABLE users (
     id         INT AUTO_INCREMENT PRIMARY KEY,
     name       VARCHAR(80)  NOT NULL,
