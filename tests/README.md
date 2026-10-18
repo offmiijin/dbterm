@@ -5,7 +5,7 @@ semeados, para exercitar a TUI de verdade.
 
 | Arquivo | O que é |
 |---|---|
-| `compose.yaml` | Serviço MySQL 8.4 na porta **13306** do host, banco `dbterm`, usuário `dbterm` |
+| `compose.yaml` | Serviço `docker.io/library/mysql:8.4` na porta **13306** do host, banco `dbterm`, usuário `dbterm` |
 | `seed.sql` | Schema e dados, carregado pelo entrypoint só na primeira inicialização do volume |
 | `mysql.rs` | Teste de integração: sobe o container, espera, e confere o que a TUI vai ler |
 
@@ -71,3 +71,7 @@ desalinhamento aparece.
 - Credenciais fixas (`dbterm`/`dbterm`, root `dbterm-root`), sem TLS e dados
   descartáveis: é fixture de desenvolvimento, não use como modelo de produção.
 - A porta 13306 foi escolhida para não brigar com um MySQL local na 3306.
+- A imagem vai com o registry explícito (`docker.io/library/mysql:8.4`): no
+  podman, um nome curto como `mysql:8.4` depende de
+  `unqualified-search-registries` no `registries.conf` e pode pedir escolha de
+  registry ou falhar.

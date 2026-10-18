@@ -13,7 +13,10 @@
 
 services:
   mysql:
-    image: mysql:8.4
+    # Referência completa de propósito: no podman `mysql:8.4` é *short name* e a
+    # resolução depende de `unqualified-search-registries` no registries.conf —
+    # em algumas máquinas ele pergunta em qual registry buscar, ou falha.
+    image: docker.io/library/mysql:8.4
     environment:
       MYSQL_ROOT_PASSWORD: dbterm-root
       MYSQL_DATABASE: dbterm
@@ -28,7 +31,11 @@ services:
     healthcheck:
       # Senha literal: `$$` de escape não é tratado igual pelo docker compose e
       # pelo podman-compose, e estas credenciais são de fixture descartável.
-      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -pdbterm-root --silent"]
+      test:
+        [
+          "CMD-SHELL",
+          "mysqladmin ping -h 127.0.0.1 -uroot -pdbterm-root --silent",
+        ]
       interval: 5s
       timeout: 5s
       retries: 30
