@@ -1,7 +1,9 @@
-//! Teste de integração: sobe um MySQL em container (com tabelas e dados) e
+//! Teste de integração: garante um MySQL em container (com tabelas e dados) e
 //! confere que o dbterm lê o que foi semeado.
 //!
-//! O container **fica no ar** de propósito, para você abrir a TUI nele:
+//! Se o container já estiver no ar, ele é reaproveitado; senão o teste sobe com
+//! `docker compose` / `podman compose` / `podman-compose`. O container **fica no
+//! ar** de propósito, para você abrir a TUI nele:
 //!
 //! ```text
 //! cargo run -- mysql://dbterm:dbterm@127.0.0.1:13306/dbterm
@@ -13,8 +15,8 @@
 //! podman compose -f tests/compose.yaml down -v
 //! ```
 //!
-//! Sem `docker compose`, `podman compose` ou `podman-compose` no PATH o teste
-//! é pulado em vez de falhar.
+//! Sem container no ar e sem nenhum compose no PATH o teste é pulado em vez de
+//! falhar.
 
 use std::path::PathBuf;
 use std::process::Command;
@@ -24,23 +26,32 @@ use std::time::{Duration, Instant};
 use dbterm::db::{Db, ROW_LIMIT, Request, Response, TableData};
 
 const URL: &str = "mysql://dbterm:dbterm@127.0.0.1:13306/dbterm";
-/// A primeira execução baixa a imagem do MySQL: seja generoso.
+/// Conexão recusada é imediata: não vale esperar muito antes de decidir subir.
+const TENTATIVA_CURTA: Duration = Duration::from_secs(3);
+/// A primeira subida baixa a imagem do MySQL: seja generoso.
 const ESPERA: Duration = Duration::from_secs(600);
 
 #[test]
 fn container_mysql_serve_dados_para_a_tui() {
-    let Some(compose) = compose() else {
-        eprintln!("SKIP: não achei `docker compose` nem `podman compose` no PATH");
-        return;
-    };
-
     let arquivo = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/compose.yaml");
     let arquivo = arquivo.to_str().expect("caminho do compose não é UTF-8");
-    if let Err(erro) = rodar(&compose, &["-f", arquivo, "up", "-d"]) {
-        panic!("não consegui subir o container:\n{erro}");
-    }
 
-    let db = conectar();
+    let (db, subiu) = match conectar(TENTATIVA_CURTA) {
+        Some(db) => {
+            eprintln!("container já estava no ar, reaproveitando");
+            (db, None)
+        }
+        None => match compose() {
+            Some(compose) => (subir(&compose, arquivo), Some(compose)),
+            None => {
+                eprintln!(
+                    "SKIP: {URL} não respondeu e não achei `docker compose`, \
+                     `podman compose` nem `podman-compose` no PATH"
+                );
+                return;
+            }
+        },
+    };
 
     let tabelas = tabelas(&db);
     for esperada in ["users", "products", "orders", "events"] {
@@ -90,15 +101,18 @@ fn container_mysql_serve_dados_para_a_tui() {
     let eventos = paginas(&db, "events");
     assert_eq!(eventos.rows.len(), ROW_LIMIT);
 
+    let derrubar = subiu.map_or_else(
+        || String::from("podman compose"),
+        |compose| compose.join(" "),
+    );
     eprintln!(
         "\nMySQL de teste no ar: {} tabelas, {} usuários, {} pedidos, {} eventos.\n\
          Abra a TUI com:\n    cargo run -- {URL}\n\
-         Para derrubar:\n    {} -f {arquivo} down -v\n",
+         Para derrubar:\n    {derrubar} -f {arquivo} down -v\n",
         tabelas.len(),
         usuarios.rows.len(),
         pedidos.rows.len(),
         eventos.rows.len(),
-        compose.join(" ")
     );
 }
 
@@ -139,21 +153,32 @@ fn rodar(compose: &[String], argumentos: &[&str]) -> Result<String, String> {
     }
 }
 
+/// Sobe o container pelo compose e espera o MySQL aceitar conexão.
+fn subir(compose: &[String], arquivo: &str) -> Db {
+    if let Err(erro) = rodar(compose, &["-f", arquivo, "up", "-d"]) {
+        panic!("não consegui subir o container:\n{erro}");
+    }
+    conectar(ESPERA).unwrap_or_else(|| panic!("MySQL de teste não respondeu em {ESPERA:?}"))
+}
+
 /// Conecta do mesmo jeito que a TUI: worker próprio, tentando de novo enquanto o
 /// MySQL inicializa (imagem, banco, seed e só então a porta aceita conexão).
-fn conectar() -> Db {
-    let prazo = Instant::now() + ESPERA;
+fn conectar(prazo: Duration) -> Option<Db> {
+    let limite = Instant::now() + prazo;
     let mut ultimo = String::from("sem resposta");
-    while Instant::now() < prazo {
+    loop {
         let db = Db::connect(URL);
         match esperar(&db, Duration::from_secs(5)) {
-            Some(Response::Connected { .. }) => return db,
+            Some(Response::Connected { .. }) => return Some(db),
             Some(Response::Failed(erro)) => ultimo = erro,
             _ => {}
         }
+        if Instant::now() >= limite {
+            eprintln!("não consegui conectar em {URL}: {ultimo}");
+            return None;
+        }
         thread::sleep(Duration::from_millis(500));
     }
-    panic!("MySQL de teste não respondeu em {ESPERA:?}: {ultimo}");
 }
 
 fn tabelas(db: &Db) -> Vec<String> {
