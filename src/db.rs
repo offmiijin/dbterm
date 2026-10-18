@@ -13,11 +13,13 @@ use mysql::{Conn, Opts, Value};
 pub const ROW_LIMIT: usize = 200;
 
 /// Uma página de dados pronta para desenhar: tudo já virou texto.
+#[derive(Debug)]
 pub struct TableData {
     pub columns: Vec<String>,
     pub rows: Vec<Vec<String>>,
 }
 
+#[derive(Debug)]
 pub enum Request {
     /// Lista as tabelas do schema atual.
     Tables,
@@ -25,6 +27,7 @@ pub enum Request {
     Rows { table: String },
 }
 
+#[derive(Debug)]
 pub enum Response {
     Connected { server: String, database: String },
     Tables(Vec<String>),
