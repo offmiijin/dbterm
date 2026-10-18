@@ -1,0 +1,38 @@
+# MySQL descartável para testar o dbterm.
+#
+#   podman compose -f tests/compose.yaml up -d      # ou: docker compose -f ...
+#   cargo run -- mysql://dbterm:dbterm@127.0.0.1:13306/dbterm
+#   podman compose -f tests/compose.yaml down -v    # -v apaga os dados
+#
+# O script tests/seed.sql só roda na primeira inicialização: depois de mexer
+# nele, derrube com `down -v` para semear de novo.
+#
+# Sem `name:` no topo de propósito: o nome do projeto sai do diretório do arquivo
+# ("tests"), então `docker compose` e `podman-compose` concordam e um não sobe um
+# segundo container brigando pela mesma porta.
+
+services:
+  mysql:
+    image: mysql:8.4
+    environment:
+      MYSQL_ROOT_PASSWORD: dbterm-root
+      MYSQL_DATABASE: dbterm
+      MYSQL_USER: dbterm
+      MYSQL_PASSWORD: dbterm
+    ports:
+      # 13306 no host para não brigar com um MySQL local na 3306.
+      - "13306:3306"
+    volumes:
+      - ./seed.sql:/docker-entrypoint-initdb.d/10-seed.sql:ro
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      # Senha literal: `$$` de escape não é tratado igual pelo docker compose e
+      # pelo podman-compose, e estas credenciais são de fixture descartável.
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -pdbterm-root --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+
+volumes:
+  mysql-data:

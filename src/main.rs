@@ -1,12 +1,8 @@
 //! dbterm: gerenciador de banco de dados via terminal.
 
-mod app;
-mod db;
-mod ui;
-
 use std::io;
 
-use app::App;
+use dbterm::app::App;
 
 fn main() -> io::Result<()> {
     let url = match url(std::env::args().nth(1)) {
