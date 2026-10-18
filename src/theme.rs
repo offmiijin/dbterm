@@ -60,9 +60,10 @@ pub fn header() -> Style {
     Style::new().fg(LAVENDER).add_modifier(Modifier::BOLD)
 }
 
-/// Item ou linha selecionada, com barra de fundo sólida.
+/// Item ou linha selecionada: só troca o fundo, para não sobrescrever as
+/// cores do conteúdo (o `Table` aplica o destaque depois das células).
 pub fn selected() -> Style {
-    Style::new().fg(TEXT).bg(SURFACE0)
+    Style::new().bg(SURFACE0)
 }
 
 /// Borda de painel, acesa quando o painel tem o foco.

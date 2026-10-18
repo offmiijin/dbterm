@@ -414,6 +414,26 @@ mod tests {
     }
 
     #[test]
+    fn selecao_preserva_a_cor_da_divisoria() {
+        let mut app = app_com_dados();
+        app.table_state.select(Some(0));
+        let mut terminal = Terminal::new(TestBackend::new(64, 12)).expect("terminal de teste");
+        terminal
+            .draw(|frame| draw(frame, &mut app))
+            .expect("desenho");
+        // A divisória da linha selecionada tem o fundo da seleção, mas mantém o
+        // cinza de `muted` em vez de herdar o `fg` do destaque.
+        let divisoria = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .find(|cell| cell.symbol() == RULE && cell.bg == crate::theme::SURFACE0)
+            .expect("esperava uma divisória na linha selecionada");
+        assert_eq!(divisoria.fg, crate::theme::OVERLAY0);
+    }
+
+    #[test]
     fn aplica_paleta_catppuccin_macchiato() {
         let mut app = app_com_dados();
         let mut terminal = Terminal::new(TestBackend::new(64, 12)).expect("terminal de teste");
