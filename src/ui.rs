@@ -157,7 +157,7 @@ fn draw_data(
     let table = Table::new(rows, constraints(&colunas))
         .header(header)
         .block(panel(title, focused))
-        .column_spacing(GAP)
+        .column_spacing(0)
         .highlight_symbol("❯ ")
         .highlight_spacing(HighlightSpacing::Always)
         .row_highlight_style(theme::selected())
@@ -339,8 +339,10 @@ fn column_widths(data: &TableData, area: u16) -> Vec<usize> {
     } else {
         0
     };
-    let ornamento =
-        2 /* bordas */ + 2 /* "❯ " */ + divisao * (RULE_WIDTH as usize + 2 * GAP as usize);
+    let ornamento = 2 /* bordas */
+        + 2 /* "❯ " */
+        + data.columns.len() * GAP as usize
+        + divisao * RULE_WIDTH as usize;
     let orcamento = (area as usize).saturating_sub(ornamento);
 
     while desejadas.iter().sum::<usize>() > orcamento {
@@ -357,14 +359,15 @@ fn column_widths(data: &TableData, area: u16) -> Vec<usize> {
     desejadas
 }
 
-/// Constraints do `Table`: coluna, divisória, coluna, ...
+/// Constraints do `Table`: coluna (com o respiro antes da divisória), divisória,
+/// coluna, ... A divisória fica colada no início da coluna seguinte.
 fn constraints(colunas: &[usize]) -> Vec<Constraint> {
     let mut widths = Vec::with_capacity(colunas.len() * 2);
     for (index, largura) in colunas.iter().enumerate() {
         if index > 0 {
             widths.push(Constraint::Length(RULE_WIDTH));
         }
-        widths.push(Constraint::Length(*largura as u16));
+        widths.push(Constraint::Length(*largura as u16 + GAP));
     }
     widths
 }
@@ -561,6 +564,7 @@ mod tests {
     fn selecao_preserva_a_cor_da_divisoria() {
         let mut app = app_com_dados();
         app.table_state.select(Some(0));
+        app.table_state.select_column(Some(0));
         let mut terminal = Terminal::new(TestBackend::new(64, 12)).expect("terminal de teste");
         terminal
             .draw(|frame| draw(frame, &mut app))
@@ -575,6 +579,34 @@ mod tests {
             .find(|cell| cell.symbol() == RULE && cell.bg == crate::theme::SURFACE0)
             .expect("esperava uma divisória na linha selecionada");
         assert_eq!(divisoria.fg, crate::theme::OVERLAY0);
+    }
+
+    #[test]
+    fn nome_da_coluna_comeca_colado_na_divisoria() {
+        let screen = screen(&mut app_com_dados());
+        assert!(screen.contains("│name"), "{screen}");
+        assert!(!screen.contains("│ name"), "{screen}");
+    }
+
+    #[test]
+    fn destaque_da_coluna_cobre_a_largura_inteira() {
+        let mut app = app_com_dados();
+        app.table_state.select(Some(0));
+        app.table_state.select_column(Some(0));
+        app.mode = crate::app::Mode::Columns;
+        let mut terminal = Terminal::new(TestBackend::new(64, 12)).expect("terminal de teste");
+        terminal
+            .draw(|frame| draw(frame, &mut app))
+            .expect("desenho");
+        let destaque = terminal
+            .backend()
+            .buffer()
+            .content()
+            .iter()
+            .filter(|cell| cell.bg == crate::theme::SURFACE1)
+            .count();
+        // `id` tem largura 2; somando os 2 espaços até a divisória, dá 4.
+        assert_eq!(destaque, 4);
     }
 
     #[test]
