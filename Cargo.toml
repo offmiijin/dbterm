@@ -1,0 +1,14 @@
+[package]
+name = "dbterm"
+version = "0.1.0"
+edition = "2024"
+description = "Gerenciador de banco de dados via terminal"
+license = "MIT"
+
+[dependencies]
+# o default do ratatui ja traz all-widgets + layout-cache; o backend crossterm
+# (0.29) vem junto e e reexportado em `ratatui::crossterm`, entao nao ha
+# dependencia direta de crossterm para casar versao.
+ratatui = "0.30"
+# minimal-rust: flate2 com backend Rust puro, sem openssl/native-tls.
+mysql = { version = "28", default-features = false, features = ["minimal-rust"] }
