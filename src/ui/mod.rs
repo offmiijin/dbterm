@@ -119,6 +119,7 @@ fn draw_footer(frame: &mut Frame, area: Rect, status: &Status, mode: &Mode) {
         Mode::Edit => "enter continuar · esc cancelar",
         Mode::Confirm => "enter executar · esc cancelar",
         Mode::ConfirmAgain => "enter confirmo · esc cancelar",
+        Mode::ConfirmQuit => "enter sair · esc cancelar",
     };
 
     let width = (keys.chars().count() as u16).min(area.width.saturating_sub(MIN_STATUS));

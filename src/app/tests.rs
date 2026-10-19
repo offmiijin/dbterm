@@ -104,22 +104,56 @@ fn teclas_navegam_selecionam_e_saem() {
     assert!(app.focus == Focus::Tables);
 
     app.on_key(KeyEvent::from(KeyCode::Char('q')));
+    assert_eq!(app.mode, Mode::ConfirmQuit);
+    assert!(!app.should_quit);
+    app.on_key(KeyEvent::from(KeyCode::Enter));
     assert!(app.should_quit);
 }
 
 #[test]
-fn esc_nos_registros_volta_as_tabelas_e_so_sai_nelas() {
+fn esc_nas_tabelas_pede_confirmacao_antes_de_sair() {
     let mut app = app_com_grade();
     app.focus = Focus::Data;
 
     // Nos registros, `esc` volta às tabelas em vez de sair.
     app.on_key(KeyEvent::from(KeyCode::Esc));
     assert!(app.focus == Focus::Tables);
+    assert_eq!(app.mode, Mode::Rows);
     assert!(!app.should_quit);
 
-    // Nas tabelas, `esc` sai da aplicação.
+    // Nas tabelas, `esc` abre a confirmação em vez de sair na hora.
     app.on_key(KeyEvent::from(KeyCode::Esc));
+    assert_eq!(app.mode, Mode::ConfirmQuit);
+    assert!(!app.should_quit);
+
+    // `esc` na confirmação cancela e volta às tabelas.
+    app.on_key(KeyEvent::from(KeyCode::Esc));
+    assert_eq!(app.mode, Mode::Rows);
+    assert!(!app.should_quit);
+
+    // Confirmar com `enter` sai da aplicação.
+    app.on_key(KeyEvent::from(KeyCode::Esc));
+    app.on_key(KeyEvent::from(KeyCode::Enter));
     assert!(app.should_quit);
+}
+
+#[test]
+fn q_em_colunas_confirma_e_cancelar_volta_ao_modo_coluna() {
+    let mut app = app_com_grade();
+    app.focus = Focus::Data;
+    app.on_key(KeyEvent::from(KeyCode::Enter));
+    assert_eq!(app.mode, Mode::Columns);
+
+    // `q` pede confirmação em vez de sair direto.
+    app.on_key(KeyEvent::from(KeyCode::Char('q')));
+    assert_eq!(app.mode, Mode::ConfirmQuit);
+    assert!(!app.should_quit);
+
+    // Cancelar restaura o modo de origem, preservando a coluna selecionada.
+    app.on_key(KeyEvent::from(KeyCode::Esc));
+    assert_eq!(app.mode, Mode::Columns);
+    assert_eq!(app.column, Some(0));
+    assert!(!app.should_quit);
 }
 
 #[test]

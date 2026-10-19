@@ -53,6 +53,8 @@ pub enum Mode {
     Confirm,
     /// Segunda confirmação: tem certeza?
     ConfirmAgain,
+    /// Confirmação de saída, aberta pelo `esc` nas tabelas.
+    ConfirmQuit,
 }
 
 /// Edição em andamento de uma célula.
@@ -75,6 +77,8 @@ pub struct App {
     pub focus: Focus,
     pub status: Status,
     pub mode: Mode,
+    /// Modo para o qual a confirmação de saída volta se cancelada.
+    pub quit_return: Mode,
     pub edit: Option<Edit>,
     pub should_quit: bool,
     pub list_state: ListState,
@@ -98,6 +102,7 @@ impl App {
             focus: Focus::Tables,
             status: Status::Connecting,
             mode: Mode::Rows,
+            quit_return: Mode::Rows,
             edit: None,
             should_quit: false,
             list_state: ListState::default(),

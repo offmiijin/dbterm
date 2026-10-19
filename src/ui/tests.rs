@@ -83,6 +83,16 @@ fn sem_dados_mostra_dica() {
     assert!(screen.contains("selecione uma tabela"), "{screen}");
 }
 
+#[test]
+fn popup_de_saida_aparece_sem_edicao() {
+    let mut app = app_com_dados();
+    app.mode = crate::app::Mode::ConfirmQuit;
+    let tela = screen(&mut app);
+    assert!(tela.contains("\u{f011} Sair"), "{tela}");
+    assert!(tela.contains("Deseja fechar o dbterm?"), "{tela}");
+    assert!(tela.contains("enter sair · esc cancelar"), "{tela}");
+}
+
 fn app_largo() -> App {
     let mut app = App::new("mysql://user@localhost/app");
     app.tables = vec![String::from("users")];

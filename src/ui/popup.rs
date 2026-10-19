@@ -19,6 +19,17 @@ pub(super) fn draw_overlays(
     data: Option<&TableData>,
     table: Option<&str>,
 ) {
+    // A confirmação de saída não depende de uma edição em andamento.
+    if matches!(mode, Mode::ConfirmQuit) {
+        let lines = vec![
+            Line::from("Deseja fechar o dbterm?"),
+            Line::from(popup_rule(area)).style(theme::muted()),
+            linha_acoes("sair"),
+        ];
+        popup(frame, area, "\u{f011} Sair", lines);
+        return;
+    }
+
     let (Some(edit), Some(data)) = (edit, data) else {
         return;
     };
@@ -68,7 +79,7 @@ pub(super) fn draw_overlays(
             // O ícone (Nerd Font) acompanha o título do pop-up.
             popup(frame, area, "\u{f00c} Confirmar", lines);
         }
-        Mode::Rows | Mode::Columns => {}
+        Mode::Rows | Mode::Columns | Mode::ConfirmQuit => {}
     }
 }
 

@@ -15,15 +15,17 @@ impl App {
             Mode::Edit => self.on_key_edit(key),
             Mode::Confirm => self.on_key_confirm(key),
             Mode::ConfirmAgain => self.on_key_confirm_again(key),
+            Mode::ConfirmQuit => self.on_key_confirm_quit(key),
         }
     }
 
     fn on_key_rows(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Char('q') => self.should_quit = true,
-            // Nos registros, `esc` volta às tabelas; só sai nas tabelas.
+            KeyCode::Char('q') => self.ask_quit(),
+            // Nos registros, `esc` volta às tabelas; nas tabelas, pede
+            // confirmação antes de sair.
             KeyCode::Esc => match self.focus {
-                Focus::Tables => self.should_quit = true,
+                Focus::Tables => self.ask_quit(),
                 Focus::Data => self.focus = Focus::Tables,
             },
             // Painéis como janelas do vim: `h` à esquerda, `l` à direita.
@@ -46,7 +48,7 @@ impl App {
 
     fn on_key_columns(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Char('q') => self.should_quit = true,
+            KeyCode::Char('q') => self.ask_quit(),
             KeyCode::Esc => self.exit_columns(),
             KeyCode::Left | KeyCode::Char('h') => self.move_column(-1),
             KeyCode::Right | KeyCode::Char('l') => self.move_column(1),
@@ -94,6 +96,20 @@ impl App {
             KeyCode::Esc => self.mode = Mode::Edit,
             _ => {}
         }
+    }
+
+    fn on_key_confirm_quit(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Enter => self.should_quit = true,
+            KeyCode::Esc => self.mode = self.quit_return,
+            _ => {}
+        }
+    }
+
+    /// Abre a confirmação de saída, guardando o modo de onde ela partiu.
+    fn ask_quit(&mut self) {
+        self.quit_return = self.mode;
+        self.mode = Mode::ConfirmQuit;
     }
 
     /// Entra no modo horizontal, na primeira coluna do registro selecionado.
