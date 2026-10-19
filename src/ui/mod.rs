@@ -103,7 +103,11 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
     };
     let [chips, lista] = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(side);
     let contagens = [history.all().len(), databases.len(), tables.len()];
-    frame.render_widget(Paragraph::new(chips_line(ativo, contagens)), chips);
+    // Os chips ficam centralizados sobre o painel logo abaixo.
+    frame.render_widget(
+        Paragraph::new(chips_line(ativo, contagens)).centered(),
+        chips,
+    );
 
     let (itens, state) = match ativo {
         Focus::Connections => (

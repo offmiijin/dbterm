@@ -565,6 +565,19 @@ fn com_as_tabelas_ativas_os_bancos_viram_chip() {
 }
 
 #[test]
+fn chips_ficam_centralizados_sobre_o_painel() {
+    let mut app = app_com_dados();
+    app.databases = vec![String::from("app")];
+    app.focus = Focus::Databases;
+    let terminal = terminal_de(&mut app, 80, 12);
+    let buffer = terminal.backend().buffer();
+
+    // "[c] bancos (1) [t]" tem 18 colunas dentro das 28 do painel.
+    let (x, _) = achar(buffer, "[c]");
+    assert_eq!(x, (28 - 18) / 2);
+}
+
+#[test]
 fn nomes_dos_niveis_usam_o_roxo_da_marca() {
     let mut app = app_com_dados();
     app.databases = vec![String::from("app")];
