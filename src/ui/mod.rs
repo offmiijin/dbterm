@@ -26,6 +26,8 @@ use crate::history::Saved;
 use crate::theme;
 
 const KEYS: &str = "q sair · c/b/t nível · esc subir · j/k mover · enter abrir · h/l colunas · r recarregar · g/G topo/fim";
+/// Nas conexões o `e` entra como ação de edição da conexão selecionada.
+const KEYS_CONNECTIONS: &str = "q sair · c/b/t nível · esc subir · e editar · j/k mover · enter abrir · r recarregar · g/G topo/fim";
 /// Espaço que a mensagem de estado nunca perde para a linha de atalhos.
 const MIN_STATUS: u16 = 32;
 
@@ -81,6 +83,7 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         hscroll,
         larguras,
         end_reached,
+        connection_edit,
         history,
         ..
     } = app;
@@ -149,7 +152,14 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         mode,
     );
 
-    draw_footer(frame, footer, status, mode, data, *end_reached);
+    draw_footer(
+        frame,
+        footer,
+        status,
+        keys(*mode, *focus, connection_edit.is_some()),
+        data,
+        *end_reached,
+    );
     popup::draw_overlays(
         frame,
         frame.area(),
@@ -158,6 +168,7 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         data.as_ref(),
         current.as_deref(),
     );
+    popup::draw_connection_edit(frame, frame.area(), connection_edit.as_ref());
 }
 
 fn draw_header(frame: &mut Frame, area: Rect, server: &str, database: &str, table: Option<&str>) {
@@ -189,7 +200,7 @@ fn draw_footer(
     frame: &mut Frame,
     area: Rect,
     status: &Status,
-    mode: &Mode,
+    keys: &str,
     data: &Option<TableData>,
     end_reached: bool,
 ) {
@@ -208,15 +219,6 @@ fn draw_footer(
         Status::Notice(message) => (message.clone(), theme::warning()),
         Status::Failed(message) => (format!("erro: {message}"), theme::error()),
     };
-    let keys = match mode {
-        Mode::Rows => KEYS,
-        Mode::Columns => "h/l coluna · enter editar · esc voltar",
-        Mode::Edit => "enter continuar · esc cancelar",
-        Mode::Confirm => "enter executar · esc cancelar",
-        Mode::ConfirmAgain => "enter confirmo · esc cancelar",
-        Mode::ConfirmQuit => "enter sair · esc cancelar",
-    };
-
     let width = (keys.chars().count() as u16).min(area.width.saturating_sub(MIN_STATUS));
     let [left, right] =
         Layout::horizontal([Constraint::Fill(1), Constraint::Length(width)]).areas(area);
@@ -225,6 +227,23 @@ fn draw_footer(
         Paragraph::new(keys).style(theme::muted()).right_aligned(),
         right,
     );
+}
+
+/// Atalhos mostrados no rodapé: o pop-up de conexão manda, depois o modo e,
+/// nas conexões, o `e` que abre a edição.
+fn keys(mode: Mode, focus: Focus, editando_conexao: bool) -> &'static str {
+    if editando_conexao {
+        return "tab campo · enter salvar · esc cancelar";
+    }
+    match mode {
+        Mode::Rows if focus == Focus::Connections => KEYS_CONNECTIONS,
+        Mode::Rows => KEYS,
+        Mode::Columns => "h/l coluna · enter editar · esc voltar",
+        Mode::Edit => "enter continuar · esc cancelar",
+        Mode::Confirm => "enter executar · esc cancelar",
+        Mode::ConfirmAgain => "enter confirmo · esc cancelar",
+        Mode::ConfirmQuit => "enter sair · esc cancelar",
+    }
 }
 
 /// Linha de chips dos três níveis, sempre na ordem conexões → bancos →

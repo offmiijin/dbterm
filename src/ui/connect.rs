@@ -62,7 +62,7 @@ fn grupo(connection: &Connection) -> usize {
 }
 
 /// Valor como aparece na tela: a senha sai como bolinhas.
-fn mostrado(connection: &Connection, field: Field) -> String {
+pub(super) fn mostrado(connection: &Connection, field: Field) -> String {
     let valor = connection.value(field);
     if field == Field::Password {
         "•".repeat(valor.chars().count())

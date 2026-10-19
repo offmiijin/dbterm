@@ -4,7 +4,7 @@ use ratatui::buffer::Buffer;
 
 use super::draw;
 use super::grid::{RULE, linhas_visiveis};
-use crate::app::{App, Focus, Screen, Status};
+use crate::app::{App, ConnectionEdit, Focus, Screen, Status};
 use crate::config::{Connection, Field};
 use crate::db::{ColumnKind, TableData};
 use crate::history::{History, Saved};
@@ -606,6 +606,113 @@ fn nivel_de_conexoes_lista_os_enderecos_salvos() {
     assert!(tela.contains("conexões (1)"), "{tela}");
 }
 
+#[test]
+fn rodape_mostra_a_tecla_de_edicao_so_nas_conexoes() {
+    let mut app = app_com_rapidas(&["db.local"]);
+    app.screen = Screen::Browse;
+    app.focus = Focus::Connections;
+    app.connections_state.select(Some(0));
+
+    // O `e` não é chip: aparece no rodapé enquanto as conexões estão ativas.
+    let tela = screen_at(&mut app, 100);
+    assert!(tela.contains("conexões (1)"), "{tela}");
+    assert!(!tela.contains("[e]"), "{tela}");
+    assert!(tela.contains("e editar"), "{tela}");
+
+    // Fora das conexões a tecla some.
+    app.focus = Focus::Databases;
+    let tela = screen_at(&mut app, 100);
+    assert!(!tela.contains("e editar"), "{tela}");
+
+    // Com o pop-up aberto, o rodapé é o do pop-up.
+    app.focus = Focus::Connections;
+    app.connection_edit = Some(ConnectionEdit {
+        saved: 0,
+        connection: Connection::default(),
+        field: Field::Host,
+    });
+    let tela = screen_at(&mut app, 100);
+    assert!(!tela.contains("e editar"), "{tela}");
+}
+
+/// App com o pop-up "Editar" da conexão aberto sobre a tela de trabalho.
+fn app_com_popup_de_conexao() -> App {
+    let mut app = app_com_rapidas(&["db.local"]);
+    app.screen = Screen::Browse;
+    app.focus = Focus::Connections;
+    app.connections_state.select(Some(0));
+    let mut connection = Connection::default();
+    *connection.value_mut(Field::Host) = String::from("db.local");
+    *connection.value_mut(Field::Database) = String::from("app");
+    *connection.value_mut(Field::Password) = String::from("segredo");
+    app.connection_edit = Some(ConnectionEdit {
+        saved: 0,
+        connection,
+        field: Field::Host,
+    });
+    app
+}
+
+#[test]
+fn popup_de_conexao_mostra_servidor_e_autenticacao_agrupados() {
+    let mut app = app_com_popup_de_conexao();
+    let terminal = terminal_de(&mut app, 64, 12);
+    let buffer = terminal.backend().buffer();
+    let tela = texto(buffer);
+
+    assert!(tela.contains("\u{f044} Editar"), "{tela}");
+    assert!(tela.contains("Servidor"), "{tela}");
+    assert!(tela.contains("Autenticação"), "{tela}");
+    assert!(
+        tela.contains("tab campo · enter salvar · esc cancelar"),
+        "{tela}"
+    );
+
+    // Host e porta dividem a linha, e o banco vem logo abaixo.
+    let (xhost, yhost) = achar(buffer, "Host");
+    let (xporta, yporta) = achar(buffer, "Porta");
+    let (_, ybanco) = achar(buffer, "Banco");
+    assert_eq!(yhost, yporta, "host e porta lado a lado");
+    assert!(xhost < xporta, "host à esquerda da porta");
+    assert_eq!(ybanco, yhost + 1, "banco abaixo de host e porta");
+
+    // O grupo da autenticação vem depois, com a senha abaixo do usuário.
+    let (_, yusuario) = achar(buffer, "Usuário");
+    let (_, ysenha) = achar(buffer, "Senha");
+    assert!(yusuario > ybanco, "autenticação abaixo do servidor");
+    assert_eq!(ysenha, yusuario + 1, "senha abaixo do usuário");
+}
+
+#[test]
+fn popup_de_conexao_nao_mostra_a_senha_em_claro() {
+    let mut app = app_com_popup_de_conexao();
+    let tela = screen(&mut app);
+    assert!(!tela.contains("segredo"), "{tela}");
+    assert!(tela.contains("•••••••"), "{tela}");
+}
+
+#[test]
+fn popup_de_conexao_destaca_o_campo_em_edicao() {
+    let mut app = app_com_popup_de_conexao();
+    let mut terminal = Terminal::new(TestBackend::new(64, 12)).expect("terminal de teste");
+    terminal
+        .draw(|frame| draw(frame, &mut app))
+        .expect("desenho");
+    let buffer = terminal.backend().buffer();
+
+    // O valor do campo com foco tem fundo próprio e o cursor no fim.
+    let (x, y) = achar(buffer, "db.local");
+    assert_eq!(buffer.cell((x, y)).unwrap().bg, crate::theme::SURFACE0);
+    let linha: String = (x..x + 20)
+        .map(|coluna| buffer.cell((coluna, y)).unwrap().symbol().to_string())
+        .collect();
+    assert!(linha.contains('▏'), "{linha}");
+
+    // O campo sem foco não tem fundo.
+    let (x, y) = achar(buffer, "app");
+    assert_eq!(buffer.cell((x, y)).unwrap().bg, crate::theme::BASE, "banco");
+}
+
 /// Tabela com 14 colunas, mais do que cabe num terminal estreito.
 fn app_com_muitas_colunas() -> App {
     let mut app = app_largo();
@@ -713,4 +820,22 @@ fn grade_desenha_so_as_linhas_da_janela() {
         .map(|cell| cell.symbol())
         .collect();
     assert!(linha.contains('❯'), "{linha}");
+}
+
+#[test]
+fn popup_de_conexao_corta_o_valor_longo_sem_quebrar_o_layout() {
+    let mut app = app_com_popup_de_conexao();
+    if let Some(edit) = app.connection_edit.as_mut() {
+        *edit.connection.value_mut(Field::Host) =
+            String::from("db.producao.interno.empresa.com.br.exemplo");
+    }
+    let tela = screen(&mut app);
+    // O valor grande não empurra as linhas: o corte fica no começo, onde o
+    // cursor não está, e o pop-up mantém as ações no lugar.
+    assert!(tela.contains('…'), "{tela}");
+    assert!(
+        tela.contains("tab campo · enter salvar · esc cancelar"),
+        "{tela}"
+    );
+    assert!(tela.contains("Senha"), "{tela}");
 }

@@ -96,6 +96,17 @@ pub struct Edit {
     pub input: String,
 }
 
+/// Edição em andamento de uma conexão salva, aberta pelo `e` nas conexões.
+#[derive(Debug)]
+pub struct ConnectionEdit {
+    /// Índice da conexão em `History::all`.
+    pub saved: usize,
+    /// Os campos, preenchidos com o que está salvo.
+    pub connection: Connection,
+    /// Campo em edição no pop-up.
+    pub field: Field,
+}
+
 pub struct App {
     pub screen: Screen,
     /// Conexões rápidas salvas, da mais recente para a mais antiga.
@@ -124,6 +135,8 @@ pub struct App {
     /// Modo para o qual a confirmação de saída volta se cancelada.
     pub quit_return: Mode,
     pub edit: Option<Edit>,
+    /// Edição da conexão selecionada, aberta pelo `e` nas conexões.
+    pub connection_edit: Option<ConnectionEdit>,
     pub should_quit: bool,
     /// Seleção nas listas de conexões, bancos e tabelas. Só a do nível ativo
     /// aparece, mas cada uma guarda onde o usuário parou.
@@ -181,6 +194,7 @@ impl App {
             mode: Mode::Rows,
             quit_return: Mode::Rows,
             edit: None,
+            connection_edit: None,
             should_quit: false,
             connections_state: ListState::default(),
             databases_state: ListState::default(),
@@ -451,15 +465,10 @@ impl App {
         let Some(saved) = self
             .quick
             .and_then(|index| self.history.recent().get(index))
-            .cloned()
         else {
             return;
         };
-        *self.connection.value_mut(Field::Host) = saved.host.clone();
-        *self.connection.value_mut(Field::Port) = saved.port.to_string();
-        *self.connection.value_mut(Field::User) = saved.user.clone();
-        *self.connection.value_mut(Field::Password) = saved.password.clone().unwrap_or_default();
-        *self.connection.value_mut(Field::Database) = saved.database.clone();
+        self.connection = saved.form();
         self.field = Field::Password;
         self.connect_error = None;
         self.screen = Screen::Connect;
@@ -475,6 +484,37 @@ impl App {
     /// Anda pela lista de conexões rápidas.
     pub(super) fn move_quick(&mut self, delta: isize) {
         self.quick = input::step(self.quick, delta, self.history.recent().len());
+    }
+
+    /// Abre o pop-up "Editar" com a conexão selecionada, senha inclusa.
+    pub(super) fn open_connection_edit(&mut self) {
+        let Some(index) = self.connections_state.selected() else {
+            return;
+        };
+        let Some(saved) = self.history.all().get(index) else {
+            return;
+        };
+        self.connection_edit = Some(ConnectionEdit {
+            saved: index,
+            connection: saved.form(),
+            field: Field::Host,
+        });
+    }
+
+    /// Grava a conexão editada no histórico, no mesmo lugar da lista. Um erro
+    /// do formulário mantém o pop-up aberto para a correção.
+    pub(super) fn save_connection_edit(&mut self) {
+        let Some(edit) = self.connection_edit.as_ref() else {
+            return;
+        };
+        if let Err(message) = edit.connection.url() {
+            self.status = Status::Failed(message);
+            return;
+        }
+        let saved = Saved::from_form(&edit.connection);
+        let index = edit.saved;
+        self.connection_edit = None;
+        self.history.replace(index, saved);
     }
 
     /// Monta a URL do formulário e pede a conexão; erros ficam na tela.

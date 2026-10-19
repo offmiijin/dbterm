@@ -21,6 +21,16 @@ impl Field {
         Field::Database,
     ];
 
+    /// Os campos do pop-up "Editar" das conexões, na ordem de tabulação: o
+    /// grupo "Servidor" e, abaixo dele, o grupo "Autenticação".
+    pub const EDICAO: [Field; 5] = [
+        Field::Host,
+        Field::Port,
+        Field::Database,
+        Field::User,
+        Field::Password,
+    ];
+
     /// Rótulo mostrado à esquerda do valor.
     pub fn label(self) -> &'static str {
         match self {
@@ -29,6 +39,17 @@ impl Field {
             Field::User => "usuário",
             Field::Password => "senha",
             Field::Database => "schema",
+        }
+    }
+
+    /// Rótulo do pop-up "Editar": capitalizado e chamando o schema de banco.
+    pub fn titulo(self) -> &'static str {
+        match self {
+            Field::Host => "Host",
+            Field::Port => "Porta",
+            Field::User => "Usuário",
+            Field::Password => "Senha",
+            Field::Database => "Banco",
         }
     }
 }

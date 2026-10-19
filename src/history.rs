@@ -55,13 +55,18 @@ impl Saved {
     /// URL `mysql://...` para reabrir a conexão guardada, com a senha em
     /// claro que veio do histórico.
     pub fn url(&self) -> Result<String, String> {
+        self.form().url()
+    }
+
+    /// O formulário equivalente a esta conexão salva, senha inclusa.
+    pub fn form(&self) -> Connection {
         let mut form = Connection::default();
         *form.value_mut(Field::Host) = self.host.clone();
         *form.value_mut(Field::Port) = self.port.to_string();
         *form.value_mut(Field::User) = self.user.clone();
         *form.value_mut(Field::Password) = self.password.clone().unwrap_or_default();
         *form.value_mut(Field::Database) = self.database.clone();
-        form.url()
+        form
     }
 
     /// Mesma conexão, independente de quando foi usada e da senha guardada.
@@ -187,6 +192,17 @@ impl History {
         self.connections.retain(|entry| !entry.same(&saved));
         self.connections.push(saved);
         self.sort();
+        self.save();
+    }
+
+    /// Troca a conexão editada pela que estava em `index`, no mesmo lugar da
+    /// lista: a data de uso — e portanto a ordem — não muda.
+    pub fn replace(&mut self, index: usize, mut saved: Saved) {
+        let Some(atual) = self.connections.get(index) else {
+            return;
+        };
+        saved.last_used = atual.last_used;
+        self.connections[index] = saved;
         self.save();
     }
 
@@ -334,6 +350,31 @@ mod tests {
             .map(|entry| entry.host.as_str())
             .collect();
         assert_eq!(hosts, ["a", "b"]);
+    }
+
+    #[test]
+    fn replace_edita_a_conexao_sem_mudar_o_lugar_na_lista() {
+        let mut history = History::with(vec![saved("a", 10), saved("b", 20)]);
+        let mut editada = saved("novo", 99);
+        editada.port = 3307;
+
+        history.replace(1, editada);
+
+        let hosts: Vec<&str> = history
+            .all()
+            .iter()
+            .map(|entry| entry.host.as_str())
+            .collect();
+        assert_eq!(hosts, ["b", "novo"], "a ordem é a mesma");
+        assert_eq!(history.all()[1].port, 3307);
+        assert_eq!(history.all()[1].last_used, 10, "a data de uso é preservada");
+    }
+
+    #[test]
+    fn replace_ignora_indice_fora_da_lista() {
+        let mut history = History::with(vec![saved("a", 10)]);
+        history.replace(7, saved("novo", 99));
+        assert_eq!(history.all()[0].host, "a");
     }
 
     #[test]
