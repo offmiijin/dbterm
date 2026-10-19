@@ -3,7 +3,7 @@ use ratatui::backend::TestBackend;
 use ratatui::buffer::Buffer;
 
 use super::draw;
-use super::grid::RULE;
+use super::grid::{RULE, linhas_visiveis};
 use crate::app::{App, Screen, Status};
 use crate::config::{Connection, Field};
 use crate::db::{ColumnKind, TableData};
@@ -73,6 +73,12 @@ fn texto(buffer: &Buffer) -> String {
 fn achar(buffer: &Buffer, texto: &str) -> (u16, u16) {
     let largura = buffer.area.width as usize;
     let simbolos: Vec<&str> = buffer.content().iter().map(|cell| cell.symbol()).collect();
+    for linha in simbolos.chunks(largura) {
+        let com_valor: Vec<_> = linha.iter().filter(|s| s.contains("reg")).collect();
+        if !com_valor.is_empty() {
+            println!("{com_valor:?}");
+        }
+    }
     let alvo: Vec<String> = texto
         .chars()
         .map(|caractere| caractere.to_string())
@@ -594,4 +600,51 @@ fn rodape_mostra_o_que_foi_carregado_e_o_fim_da_tabela() {
     app.end_reached = true;
     let tela = screen_at(&mut app, 100);
     assert!(!tela.contains("carrega mais"), "{tela}");
+}
+
+#[test]
+fn janela_vertical_segue_a_selecao_e_a_rolagem() {
+    // Seleção dentro da rolagem guardada: a janela não anda.
+    assert_eq!(linhas_visiveis(0, Some(3), 5, 100), (0, 5));
+    assert_eq!(linhas_visiveis(10, Some(12), 5, 100), (10, 15));
+    // Seleção abaixo da janela: ela vira a última linha visível.
+    assert_eq!(linhas_visiveis(0, Some(7), 5, 100), (3, 8));
+    // Seleção acima da rolagem: ela vira a primeira linha visível.
+    assert_eq!(linhas_visiveis(20, Some(2), 5, 100), (2, 7));
+    // Fim da tabela: a janela encolhe em vez de passar do fim.
+    assert_eq!(linhas_visiveis(95, Some(99), 5, 100), (95, 100));
+    // Rolagem além do fim e casos vazios.
+    assert_eq!(linhas_visiveis(50, None, 5, 10), (9, 10));
+    assert_eq!(linhas_visiveis(0, None, 5, 0), (0, 0));
+    assert_eq!(linhas_visiveis(0, Some(0), 0, 10), (0, 0));
+}
+
+#[test]
+fn grade_desenha_so_as_linhas_da_janela() {
+    let mut app = app_com_dados();
+    app.data = Some(TableData {
+        columns: vec![String::from("id")],
+        kinds: vec![ColumnKind::Text],
+        rows: (1..=100)
+            .map(|n| vec![format!("registro-{n:03}")])
+            .collect(),
+        primary_key: vec![0],
+    });
+    app.larguras = super::larguras(app.data.as_ref().expect("grade"));
+    app.table_state.select(Some(49));
+
+    let terminal = terminal_de(&mut app, 100, 12);
+    let buffer = terminal.backend().buffer();
+    let tela = texto(buffer);
+    // A linha selecionada aparece, e as de fora da janela não são desenhadas.
+    assert!(tela.contains("registro-050"), "{tela}");
+    assert!(!tela.contains("registro-001"), "{tela}");
+    // O destaque fica na linha da seleção, não na primeira da janela.
+    let (_, y) = achar(buffer, "registro-050");
+    let largura = buffer.area.width as usize;
+    let linha: String = buffer.content()[y as usize * largura..][..largura]
+        .iter()
+        .map(|cell| cell.symbol())
+        .collect();
+    assert!(linha.contains('❯'), "{linha}");
 }

@@ -116,6 +116,9 @@ pub struct App {
     /// tabelas com mais colunas do que cabe na tela. Quem ajusta à largura e à
     /// coluna selecionada é `ui`.
     pub hscroll: usize,
+    /// Largura natural de cada coluna de `data`, medida quando os dados mudam:
+    /// medir a cada quadro varreria todas as linhas carregadas.
+    pub larguras: Vec<usize>,
     /// A tabela acabou: a última página veio com menos linhas que o pedido.
     pub end_reached: bool,
     /// Há uma página a caminho: não vale pedir de novo a cada tecla.
@@ -160,6 +163,7 @@ impl App {
             table_state: TableState::default(),
             column: None,
             hscroll: 0,
+            larguras: Vec::new(),
             end_reached: false,
             loading_more: false,
             db,
@@ -234,6 +238,7 @@ impl App {
                 let linhas = data.rows.len();
                 let colunas = data.columns.len();
                 self.current = Some(table);
+                self.larguras = ui::larguras(&data);
                 self.data = Some(data);
                 self.end_reached = linhas < limit;
                 self.loading_more = false;
@@ -278,6 +283,10 @@ impl App {
             return;
         }
         self.end_reached = data.rows.len() < limit;
+        // A página nova pode trazer valores mais largos que os já vistos.
+        for (largura, nova) in self.larguras.iter_mut().zip(ui::larguras(&data)) {
+            *largura = (*largura).max(nova);
+        }
         if let Some(atual) = self.data.as_mut() {
             atual.rows.extend(data.rows);
         }

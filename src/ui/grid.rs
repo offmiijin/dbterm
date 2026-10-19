@@ -17,6 +17,9 @@ use crate::theme;
 
 /// Largura máxima de uma coluna da grade.
 const MAX_COL: usize = 28;
+/// Linhas que o painel come: duas bordas e o cabeçalho da grade.
+const BORDAS: u16 = 2;
+const HEADER: u16 = 1;
 /// Respiro de cada lado da linha divisória entre colunas.
 const GAP: u16 = 2;
 /// O traço que separa duas colunas.
@@ -26,11 +29,12 @@ const RULE_WIDTH: u16 = 1;
 /// De quanto em quanto o índice do widget pula para chegar na próxima coluna.
 const RULE_STRIDE: usize = 2;
 
-/// Onde a grade está na horizontal: a coluna selecionada (só no modo colunas) e
-/// a rolagem pedida, em colunas.
-pub(super) struct Posicao {
+/// Onde a grade está na horizontal e quanto mede cada coluna.
+pub(super) struct Posicao<'a> {
     pub coluna: Option<usize>,
     pub rolagem: usize,
+    /// Largura natural de cada coluna, medida pela app quando os dados mudam.
+    pub larguras: &'a [usize],
 }
 
 /// Índice da coluna de dados `index` no widget `Table`.
@@ -55,8 +59,12 @@ pub(super) fn draw_data(
         return;
     };
 
+    // Medir as colunas é varrer todas as linhas carregadas, então a app mede uma
+    // vez por mudança de dados; só sem a medida pronta é que se mede aqui.
+    let medidas = (posicao.larguras.len() != data.columns.len()).then(|| larguras(data));
+    let ideais = medidas.as_deref().unwrap_or(posicao.larguras);
     let column = posicao.coluna;
-    let janela = janela(data, area.width, posicao.rolagem, column);
+    let janela = janela(data, area.width, posicao.rolagem, column, ideais);
     let coluna = column.and_then(|index| data.columns.get(index));
     let mut title = match (mode, coluna) {
         (Mode::Columns | Mode::Edit | Mode::Confirm | Mode::ConfirmAgain, Some(nome)) => {
@@ -75,8 +83,12 @@ pub(super) fn draw_data(
     }
 
     let header = Row::new(header_cells(data, &janela)).style(theme::header());
-    let rows: Vec<Row> = data
-        .rows
+    // Só as linhas que cabem: montar `Row`s das milhares de linhas carregadas a
+    // cada quadro custa mais que desenhar.
+    let altura = area.height.saturating_sub(BORDAS + HEADER) as usize;
+    let (primeira, ultima) =
+        linhas_visiveis(state.offset(), state.selected(), altura, data.rows.len());
+    let rows: Vec<Row> = data.rows[primeira..ultima]
         .iter()
         .map(|row| Row::new(cells(row, &janela)))
         .collect();
@@ -89,15 +101,21 @@ pub(super) fn draw_data(
         .highlight_spacing(HighlightSpacing::Always)
         .row_highlight_style(theme::selected())
         .cell_highlight_style(theme::cell_selected());
-    // O widget vê uma divisória entre cada par de colunas, então o índice de
-    // dados é dobrado aqui: o estado guarda só a coluna de dados.
-    state.select_column(
+    // O widget recebe um estado descartável: ele escreve nele a rolagem e a
+    // coluna em relação às linhas e colunas que vê, que começam na janela. O
+    // estado de verdade guarda só a linha e a coluna selecionadas — e a rolagem
+    // vertical, que é nossa. O índice da coluna é dobrado porque o widget vê uma
+    // divisória entre cada par de colunas.
+    let mut grade = TableState::default();
+    grade.select(state.selected().map(|linha| linha.saturating_sub(primeira)));
+    grade.select_column(
         column
             .and_then(|index| index.checked_sub(janela.inicio))
             .filter(|&visivel| visivel < janela.larguras.len())
             .map(table_column),
     );
-    frame.render_stateful_widget(table, area, state);
+    frame.render_stateful_widget(table, area, &mut grade);
+    *state.offset_mut() = primeira;
 }
 
 /// A linha vertical que separa duas colunas.
@@ -157,13 +175,13 @@ impl Janela {
     }
 }
 
-/// Larguras ideais e mínimas de cada coluna de dados.
+/// Largura natural de cada coluna: o nome do cabeçalho inteiro e o conteúdo,
+/// cortado em [`MAX_COL`].
 ///
-/// A mínima é o nome do cabeçalho inteiro: ele nunca pode virar `n`, `e`, `a`.
-/// A ideal soma o conteúdo, cortado em [`MAX_COL`].
-fn widths(data: &TableData) -> (Vec<usize>, Vec<usize>) {
+/// Varre todas as linhas carregadas, então quem chama mede uma vez por mudança
+/// de dados — não a cada quadro.
+pub(crate) fn larguras(data: &TableData) -> Vec<usize> {
     let mut ideais = Vec::with_capacity(data.columns.len());
-    let mut minimas = Vec::with_capacity(data.columns.len());
     for (index, name) in data.columns.iter().enumerate() {
         let cabecalho = largura(name);
         let conteudo = data.rows.iter().fold(cabecalho, |maior, row| {
@@ -171,9 +189,13 @@ fn widths(data: &TableData) -> (Vec<usize>, Vec<usize>) {
                 .map_or(maior, |value| maior.max(largura(value).min(MAX_COL)))
         });
         ideais.push(conteudo);
-        minimas.push(cabecalho);
     }
-    (ideais, minimas)
+    ideais
+}
+
+/// A largura mínima de cada coluna: o nome do cabeçalho inteiro.
+fn minimas(data: &TableData) -> Vec<usize> {
+    data.columns.iter().map(|name| largura(name)).collect()
 }
 
 /// Espaço que sobra para as colunas de dados: da área saem as bordas do painel,
@@ -252,7 +274,13 @@ fn encaixar(ideais: &[usize], minimas: &[usize], area: u16) -> Vec<usize> {
 /// Quando os nomes dos cabeçalhos não cabem todos, a grade rola na horizontal —
 /// `scroll` é a primeira coluna pedida — em vez de espremer o cabeçalho até uma
 /// letra. A coluna `column`, quando há, sempre fica visível.
-fn janela(data: &TableData, area: u16, scroll: usize, column: Option<usize>) -> Janela {
+fn janela(
+    data: &TableData,
+    area: u16,
+    scroll: usize,
+    column: Option<usize>,
+    ideais: &[usize],
+) -> Janela {
     let total = data.columns.len();
     if total == 0 {
         return Janela {
@@ -260,30 +288,60 @@ fn janela(data: &TableData, area: u16, scroll: usize, column: Option<usize>) -> 
             larguras: Vec::new(),
         };
     }
-    let (ideais, minimas) = widths(data);
+    let minimas = minimas(data);
     // Todos os nomes cabem: basta cortar o conteúdo das colunas mais largas.
     if minimas.iter().sum::<usize>() <= orcamento(area, total) {
         return Janela {
             inicio: 0,
-            larguras: encaixar(&ideais, &minimas, area),
+            larguras: encaixar(ideais, &minimas, area),
         };
     }
 
     let mut inicio = scroll.min(total - 1);
     if let Some(selecionada) = column {
-        let visiveis = cabem(&ideais, area, inicio);
+        let visiveis = cabem(ideais, area, inicio);
         if selecionada < inicio {
             inicio = selecionada;
         } else if selecionada >= inicio + visiveis {
             // A seleção não coube à direita: ela vira a última coluna da tela.
-            inicio = recorte_ate(&ideais, area, selecionada + 1);
+            inicio = recorte_ate(ideais, area, selecionada + 1);
         }
     }
-    let fim = inicio + cabem(&ideais, area, inicio);
+    let fim = inicio + cabem(ideais, area, inicio);
     Janela {
         inicio,
         larguras: encaixar(&ideais[inicio..fim], &minimas[inicio..fim], area),
     }
+}
+
+/// As linhas que a grade desenha: a janela de `altura` linhas em torno da
+/// seleção, ancorada na `rolagem` que ficou do quadro anterior.
+///
+/// Mesma regra do widget (que só recebe a janela): a seleção nunca sai da tela —
+/// vira a última linha quando passa do fim e a primeira quando fica acima.
+pub(super) fn linhas_visiveis(
+    rolagem: usize,
+    selecionada: Option<usize>,
+    altura: usize,
+    total: usize,
+) -> (usize, usize) {
+    if total == 0 || altura == 0 {
+        return (0, 0);
+    }
+    let ultima = total - 1;
+    let mut primeira = rolagem.min(ultima);
+    if let Some(selecionada) = selecionada {
+        primeira = primeira.min(selecionada.min(ultima));
+    }
+    let mut fim = (primeira + altura).min(total);
+    if let Some(selecionada) = selecionada {
+        let selecionada = selecionada.min(ultima);
+        if selecionada >= fim {
+            primeira = (selecionada + 1).saturating_sub(altura);
+            fim = (primeira + altura).min(total);
+        }
+    }
+    (primeira, fim)
 }
 
 /// Constraints do `Table`: coluna (com o respiro antes da divisória), divisória,

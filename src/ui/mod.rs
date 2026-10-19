@@ -1,9 +1,14 @@
-//! Desenho da tela. Toda função aqui só lê o estado.
+//! Desenho da tela. Toda função aqui só lê o estado — a exceção é a rolagem do
+//! `TableState` da grade, que o widget atualiza ao desenhar.
 //!
-//! O layout fica aqui; a grade de dados em `grid` e os pop-ups em `popup`.
+//! O layout fica aqui; a grade de dados em `grid` e os pop-ups em `popup`. A app
+//! também usa [`larguras`] para medir as colunas uma vez por mudança de dados.
 
 mod connect;
 mod grid;
+/// Largura natural de cada coluna: quem chama é a app, uma vez por mudança de
+/// dados, porque medir varre todas as linhas carregadas.
+pub(crate) use grid::larguras;
 mod popup;
 mod quick;
 #[cfg(test)]
@@ -70,6 +75,7 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         table_state,
         column,
         hscroll,
+        larguras,
         end_reached,
         ..
     } = app;
@@ -107,6 +113,7 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         grid::Posicao {
             coluna: *column,
             rolagem: *hscroll,
+            larguras,
         },
         mode,
     );

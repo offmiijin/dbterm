@@ -731,8 +731,8 @@ fn pagina_curta_marca_o_fim_da_tabela() {
 #[test]
 fn pagina_que_chega_depois_de_trocar_de_tabela_e_descartada() {
     let mut app = grade_com("events", 10);
-    app.table_state.select(Some(9));
-    app.on_key(KeyEvent::from(KeyCode::Char('j'))); // no fim: pede a próxima
+    app.table_state.select(Some(8));
+    app.on_key(KeyEvent::from(KeyCode::Char('j'))); // chegou no fim: pede a próxima
     assert!(app.loading_more);
 
     // A resposta da primeira página de outra tabela chega antes.
@@ -769,7 +769,7 @@ fn recarregar_a_mesma_tabela_pede_as_linhas_ja_carregadas() {
 #[test]
 fn falha_na_pagina_libera_a_proxima_tentativa() {
     let mut app = grade_com("events", 10);
-    app.table_state.select(Some(9));
+    app.table_state.select(Some(8));
     app.on_key(KeyEvent::from(KeyCode::Char('j')));
     assert!(app.loading_more);
 
@@ -777,7 +777,38 @@ fn falha_na_pagina_libera_a_proxima_tentativa() {
     assert!(!app.loading_more);
     assert!(matches!(app.status, Status::Failed(ref erro) if erro == "conexão caiu"));
 
-    // A tabela não acabou: descer de novo tenta outra página.
+    // A tabela não acabou: subir e descer de novo ao fim tenta outra página.
+    app.on_key(KeyEvent::from(KeyCode::Char('k')));
+    assert!(!app.loading_more);
     app.on_key(KeyEvent::from(KeyCode::Char('j')));
     assert!(app.loading_more);
+}
+
+#[test]
+fn segurar_a_tecla_no_fim_da_pagina_nao_pede_de_novo() {
+    let mut app = grade_com("events", 10);
+    app.table_state.select(Some(8));
+    app.on_key(KeyEvent::from(KeyCode::Char('j')));
+    assert!(app.loading_more);
+    // A resposta chega e a página nova entra: a seleção não se moveu.
+    app.on_response(pagina("events", 11, ROW_LIMIT));
+    assert!(!app.loading_more);
+    assert_eq!(app.row_count(), 10 + ROW_LIMIT);
+
+    // No fim da página carregada, repetir `j` não pede nada.
+    app.table_state.select(Some(10 + ROW_LIMIT - 1));
+    for _ in 0..5 {
+        app.on_key(KeyEvent::from(KeyCode::Char('j')));
+    }
+    assert_eq!(app.table_state.selected(), Some(10 + ROW_LIMIT - 1));
+    assert!(
+        !app.loading_more,
+        "tecla repetida no fim não pode pedir página"
+    );
+
+    // `G` já no fim também não.
+    for _ in 0..5 {
+        app.on_key(KeyEvent::from(KeyCode::Char('G')));
+    }
+    assert!(!app.loading_more);
 }
