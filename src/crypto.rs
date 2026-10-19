@@ -1,11 +1,12 @@
-//! Cifra da senha salva: AES-256-GCM com uma chave local do app.
+//! Cifra da senha salva: AES-256-GCM com a chave do app.
 //!
-//! A chave fica ao lado do arquivo de conexões, com permissão só do dono
-//! (0600 no Unix). Isso tira a senha do texto puro do JSON — protege contra
-//! leitura casual, backup, cópia do arquivo ou `git` — mas **não** protege
-//! contra quem já consegue ler a sua pasta pessoal: quem lê a chave decifra a
-//! senha. Segurança de verdade pediria a chave no keyring do sistema ou um
-//! master password só seu.
+//! A chave mora no cofre do sistema (veja `keychain`); só quando não há cofre
+//! ela cai para o arquivo `chave.bin` ao lado das conexões, com permissão só do
+//! dono (0600 no Unix). Em qualquer dos casos isso tira a senha do texto puro
+//! do JSON — protege contra leitura casual, backup, cópia do arquivo ou `git` —
+//! mas **não** contra quem já consegue ler a sua pasta pessoal **quando o cofre
+//! não está em uso**. Segurança de verdade pediria também um master password só
+//! seu.
 
 use std::fs;
 use std::path::Path;
@@ -21,30 +22,51 @@ const NONCE: usize = 12;
 /// Tamanho da chave do AES-256, em bytes.
 const KEY: usize = 32;
 
-/// A chave da cifra, lida de um arquivo ou criada na primeira vez.
+/// A chave da cifra, vinda do cofre do sistema ou do arquivo `chave.bin`.
 pub struct Key([u8; KEY]);
 
 impl Key {
+    /// Sorteia uma chave nova, sem tocar no disco.
+    pub fn random() -> Self {
+        let mut key = [0u8; KEY];
+        OsRng.fill_bytes(&mut key);
+        Self(key)
+    }
+
+    /// Chave a partir dos bytes guardados no cofre.
+    pub fn from_bytes(bytes: [u8; KEY]) -> Self {
+        Self(bytes)
+    }
+
+    /// Bytes da chave, para guardar no cofre.
+    pub fn bytes(&self) -> &[u8; KEY] {
+        &self.0
+    }
+
+    /// Lê a chave de `path` sem criar nem alterar nada; `None` se o arquivo não
+    /// existe ou não tem os 32 bytes de uma chave.
+    pub fn read(path: &Path) -> Option<Self> {
+        let bytes = fs::read(path).ok()?;
+        <[u8; KEY]>::try_from(bytes).ok().map(Self)
+    }
+
     /// Lê a chave de `path`; se não existir, sorteia uma nova e grava com
     /// permissão só do dono. `None` quando não deu nem para ler nem gravar —
     /// nesse caso a senha simplesmente não é salva.
     pub fn load_or_create(path: &Path) -> Option<Self> {
-        if let Ok(bytes) = fs::read(path) {
-            return Some(Self(<[u8; KEY]>::try_from(bytes).ok()?));
+        if let Some(key) = Self::read(path) {
+            return Some(key);
         }
         // Existe mas não deu para ler/usar: não sobrescreve a chave (poderia
         // apagar a única cópia que decifra as senhas já salvas).
         if path.exists() {
             return None;
         }
-        let mut key = [0u8; KEY];
-        OsRng.fill_bytes(&mut key);
-        match write_private(path, &key) {
-            Ok(()) => Some(Self(key)),
-            Err(_) => {
-                key.zeroize();
-                None
-            }
+        let key = Self::random();
+        match write_private(path, key.bytes()) {
+            Ok(()) => Some(key),
+            // `key` é zerada no drop.
+            Err(_) => None,
         }
     }
 

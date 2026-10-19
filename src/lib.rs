@@ -9,5 +9,6 @@ pub mod config;
 mod crypto;
 pub mod db;
 pub mod history;
+mod keychain;
 pub mod theme;
 pub mod ui;
