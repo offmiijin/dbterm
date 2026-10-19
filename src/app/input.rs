@@ -92,9 +92,15 @@ impl App {
                 Focus::Tables => self.ask_quit(),
                 Focus::Data => self.focus = Focus::Tables,
             },
-            // Painéis como janelas do vim: `h` à esquerda, `l` à direita.
-            KeyCode::Char('h') => self.focus = Focus::Tables,
-            KeyCode::Char('l') => self.focus = Focus::Data,
+            // Trocar de painel é só com `enter`; `esc` volta para as tabelas.
+            // `h`/`l` andam na horizontal pelas colunas da grade, que podem não
+            // caber todas na tela.
+            KeyCode::Left | KeyCode::Char('h') if self.focus == Focus::Data => {
+                self.scroll_columns(-1)
+            }
+            KeyCode::Right | KeyCode::Char('l') if self.focus == Focus::Data => {
+                self.scroll_columns(1)
+            }
             KeyCode::Down | KeyCode::Char('j') => self.move_selection(1),
             KeyCode::Up | KeyCode::Char('k') => self.move_selection(-1),
             KeyCode::PageDown => self.move_selection(PAGE),
@@ -206,6 +212,16 @@ impl App {
         self.column = Some(next);
     }
 
+    /// Rola as colunas da grade na horizontal, sem mexer na seleção.
+    fn scroll_columns(&mut self, delta: isize) {
+        let len = self.data.as_ref().map_or(0, |data| data.columns.len());
+        if len == 0 {
+            return;
+        }
+        let atual = self.hscroll.min(len - 1);
+        self.hscroll = (atual as isize + delta).clamp(0, len as isize - 1) as usize;
+    }
+
     fn start_edit(&mut self) {
         let Some(data) = self.data.as_ref() else {
             return;
@@ -242,8 +258,14 @@ impl App {
             }
             Focus::Data => {
                 let len = self.row_count();
-                let next = step(self.table_state.selected(), delta, len);
+                let atual = self.table_state.selected();
+                let next = step(atual, delta, len);
                 self.table_state.select(next);
+                // Segurar a tecla no fim da página não pode pedir a página de
+                // novo a cada repetição: só quando a seleção andou de verdade.
+                if next != atual {
+                    self.load_next_page();
+                }
             }
         }
     }
@@ -259,8 +281,12 @@ impl App {
             Focus::Data => {
                 let len = self.row_count();
                 if len > 0 {
-                    self.table_state
-                        .select(Some(if last { len - 1 } else { 0 }));
+                    let destino = if last { len - 1 } else { 0 };
+                    let andou = self.table_state.selected() != Some(destino);
+                    self.table_state.select(Some(destino));
+                    if andou {
+                        self.load_next_page();
+                    }
                 }
             }
         }

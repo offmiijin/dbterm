@@ -12,7 +12,8 @@ mod worker;
 pub use preview::{SqlPart, update_preview};
 pub use worker::Db;
 
-/// Quantas linhas de cada tabela buscamos por página (MVP: sem paginação).
+/// Quantas linhas a grade busca por página: ao encostar na última, ela pede a
+/// página seguinte, até a tabela acabar.
 pub const ROW_LIMIT: usize = 200;
 
 /// Tipo da coluna reduzido ao que a UI precisa: número ou texto.
@@ -73,8 +74,12 @@ pub enum Request {
     Connect { url: String },
     /// Lista as tabelas do schema atual.
     Tables,
-    /// Busca as primeiras [`ROW_LIMIT`] linhas de uma tabela.
-    Rows { table: String },
+    /// Busca uma página de `limit` linhas de uma tabela, a partir de `offset`.
+    Rows {
+        table: String,
+        offset: usize,
+        limit: usize,
+    },
     /// Grava `value` (`None` = `NULL`) na coluna `column` da linha identificada
     /// pelos valores atuais da chave primária.
     Update {
@@ -94,6 +99,10 @@ pub enum Response {
     Tables(Vec<String>),
     Rows {
         table: String,
+        /// Quantas linhas já vinham carregadas antes desta página.
+        offset: usize,
+        /// Quantas linhas foram pedidas: a página veio inteira?
+        limit: usize,
         data: TableData,
     },
     /// O `UPDATE` foi aplicado; a UI recarrega a tabela.

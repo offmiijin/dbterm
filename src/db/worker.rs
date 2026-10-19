@@ -72,9 +72,18 @@ fn worker(tx: &Sender<Response>, rx: &Receiver<Request>) {
                 },
                 None => sem_conexao(),
             },
-            Request::Rows { table } => match conn.as_mut() {
-                Some(conn) => match rows(conn, &table) {
-                    Ok(data) => Response::Rows { table, data },
+            Request::Rows {
+                table,
+                offset,
+                limit,
+            } => match conn.as_mut() {
+                Some(conn) => match rows(conn, &table, offset, limit) {
+                    Ok(data) => Response::Rows {
+                        table,
+                        offset,
+                        limit,
+                        data,
+                    },
                     Err(err) => Response::Failed(err.to_string()),
                 },
                 None => sem_conexao(),

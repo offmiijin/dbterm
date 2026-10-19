@@ -103,6 +103,8 @@ fn resposta_de_linhas_preenche_a_grade() {
     let mut app = app();
     app.on_response(Response::Rows {
         table: String::from("users"),
+        offset: 0,
+        limit: ROW_LIMIT,
         data: TableData {
             columns: vec![String::from("id")],
             kinds: vec![ColumnKind::Number],
@@ -138,9 +140,9 @@ fn teclas_navegam_selecionam_e_saem() {
     app.on_key(KeyEvent::from(KeyCode::Char('G')));
     assert_eq!(app.list_state.selected(), Some(1));
 
-    // `h`/`l` trocam de painel; `tab` não mexe mais no foco.
+    // `h`/`l` não trocam mais de painel: nas tabelas eles não fazem nada.
     app.on_key(KeyEvent::from(KeyCode::Char('l')));
-    assert!(app.focus == Focus::Data);
+    assert!(app.focus == Focus::Tables);
     app.on_key(KeyEvent::from(KeyCode::Char('h')));
     assert!(app.focus == Focus::Tables);
 
@@ -198,18 +200,45 @@ fn q_em_colunas_confirma_e_cancelar_volta_ao_modo_coluna() {
 }
 
 #[test]
-fn h_l_trocam_de_painel_e_tab_nao_faz_nada() {
+fn enter_troca_de_painel_e_h_l_nao() {
     let mut app = app_com_grade();
+    app.focus = Focus::Tables;
+
+    // `h`/`l` não trocam mais de painel; quem leva aos dados é o `enter`.
+    app.on_key(KeyEvent::from(KeyCode::Char('l')));
+    assert!(app.focus == Focus::Tables);
     app.on_key(KeyEvent::from(KeyCode::Char('h')));
     assert!(app.focus == Focus::Tables);
-    app.on_key(KeyEvent::from(KeyCode::Char('l')));
+    app.on_key(KeyEvent::from(KeyCode::Enter));
     assert!(app.focus == Focus::Data);
+
+    // De volta às tabelas, só com `esc`.
+    app.on_key(KeyEvent::from(KeyCode::Esc));
+    assert!(app.focus == Focus::Tables);
 
     // Tab foi removido da troca de foco entre os painéis.
     app.on_key(KeyEvent::from(KeyCode::Tab));
-    assert!(app.focus == Focus::Data);
+    assert!(app.focus == Focus::Tables);
     app.on_key(KeyEvent::from(KeyCode::BackTab));
-    assert!(app.focus == Focus::Data);
+    assert!(app.focus == Focus::Tables);
+}
+
+#[test]
+fn h_l_nos_registros_rolam_as_colunas() {
+    let mut app = app_com_grade();
+    app.focus = Focus::Data;
+    // `h`/`l` andam na horizontal pelas colunas, do mesmo jeito que as setas.
+    app.on_key(KeyEvent::from(KeyCode::Char('l')));
+    assert_eq!(app.hscroll, 1);
+    app.on_key(KeyEvent::from(KeyCode::Char('l')));
+    assert_eq!(app.hscroll, 1, "clampa na última coluna");
+    app.on_key(KeyEvent::from(KeyCode::Char('h')));
+    assert_eq!(app.hscroll, 0);
+    app.on_key(KeyEvent::from(KeyCode::Left));
+    assert_eq!(app.hscroll, 0, "clampa na primeira coluna");
+    // Rolar não mexe na seleção nem no modo.
+    assert_eq!(app.column, None);
+    assert_eq!(app.mode, Mode::Rows);
 }
 
 #[test]
@@ -289,6 +318,8 @@ fn recarregar_a_mesma_tabela_preserva_linha_e_coluna() {
 
     app.on_response(Response::Rows {
         table: String::from("users"),
+        offset: 0,
+        limit: ROW_LIMIT,
         data: TableData {
             columns: vec![String::from("id"), String::from("name")],
             kinds: vec![ColumnKind::Number, ColumnKind::Text],
@@ -345,6 +376,8 @@ fn segundo_enter_na_tabela_aberta_vai_aos_registros() {
     // Resposta: os registros ficam prontos, mas o foco segue na lista.
     app.on_response(Response::Rows {
         table: String::from("users"),
+        offset: 0,
+        limit: ROW_LIMIT,
         data: TableData {
             columns: vec![String::from("id")],
             kinds: vec![ColumnKind::Number],
@@ -382,6 +415,8 @@ fn abrir_outra_tabela_reseta_a_selecao_e_o_modo() {
 
     app.on_response(Response::Rows {
         table: String::from("orders"),
+        offset: 0,
+        limit: ROW_LIMIT,
         data: TableData {
             columns: vec![String::from("id")],
             kinds: vec![ColumnKind::Number],
@@ -575,4 +610,205 @@ fn enter_abre_a_rapida_com_a_senha_salva() {
     app.quick = Some(0);
     app.on_key(KeyEvent::from(KeyCode::Enter));
     assert_eq!(app.connection.value(Field::Password), "segredo");
+}
+
+#[test]
+fn setas_horizontais_rolam_as_colunas_da_grade() {
+    let mut app = app_com_grade();
+    app.focus = Focus::Data;
+    app.on_key(KeyEvent::from(KeyCode::Right));
+    assert_eq!(app.hscroll, 1);
+    app.on_key(KeyEvent::from(KeyCode::Right));
+    assert_eq!(app.hscroll, 1, "clampa na última coluna");
+    app.on_key(KeyEvent::from(KeyCode::Left));
+    assert_eq!(app.hscroll, 0);
+    app.on_key(KeyEvent::from(KeyCode::Left));
+    assert_eq!(app.hscroll, 0, "clampa na primeira coluna");
+
+    // Na lista de tabelas as setas horizontais não rolam a grade.
+    app.focus = Focus::Tables;
+    app.on_key(KeyEvent::from(KeyCode::Right));
+    assert_eq!(app.hscroll, 0);
+}
+
+#[test]
+fn tabela_nova_volta_a_rolagem_horizontal_ao_inicio() {
+    let mut app = app_com_grade();
+    app.hscroll = 1;
+    app.on_response(Response::Rows {
+        table: String::from("outra"),
+        offset: 0,
+        limit: ROW_LIMIT,
+        data: TableData {
+            columns: vec![String::from("id"), String::from("name")],
+            kinds: vec![ColumnKind::Number, ColumnKind::Text],
+            rows: vec![vec![String::from("1"), String::from("ana")]],
+            primary_key: vec![0],
+        },
+    });
+    assert_eq!(app.hscroll, 0);
+}
+
+/// Grade com `linhas` registros de uma coluna só, já focada nos dados.
+fn grade_com(table: &str, linhas: usize) -> App {
+    let mut app = app();
+    app.tables = vec![table.to_string()];
+    app.list_state.select(Some(0));
+    app.current = Some(table.to_string());
+    app.data = Some(TableData {
+        columns: vec![String::from("id")],
+        kinds: vec![ColumnKind::Number],
+        rows: (1..=linhas).map(|n| vec![n.to_string()]).collect(),
+        primary_key: vec![0],
+    });
+    app.focus = Focus::Data;
+    app.table_state.select(Some(0));
+    app.status = Status::Ready;
+    app
+}
+
+/// Uma página de `linhas` registros a partir de `primeira`.
+fn pagina(tabela: &str, primeira: usize, linhas: usize) -> Response {
+    Response::Rows {
+        table: tabela.to_string(),
+        offset: primeira - 1,
+        limit: ROW_LIMIT,
+        data: TableData {
+            columns: vec![String::from("id")],
+            kinds: vec![ColumnKind::Number],
+            rows: (primeira..primeira + linhas)
+                .map(|n| vec![n.to_string()])
+                .collect(),
+            primary_key: vec![0],
+        },
+    }
+}
+
+#[test]
+fn encostar_na_ultima_linha_pede_e_anexa_a_pagina_seguinte() {
+    let mut app = grade_com("events", ROW_LIMIT);
+    // Enquanto a seleção não chega no fim, nada é pedido.
+    app.on_key(KeyEvent::from(KeyCode::Char('j')));
+    assert!(!app.loading_more);
+    assert!(!app.end_reached);
+
+    // Chegou no registro 200: pede mais 200.
+    app.on_key(KeyEvent::from(KeyCode::Char('G')));
+    assert!(app.loading_more);
+    assert!(matches!(app.status, Status::Loading(ref tabela) if tabela == "events"));
+
+    app.on_response(pagina("events", ROW_LIMIT + 1, ROW_LIMIT));
+    assert_eq!(app.row_count(), 2 * ROW_LIMIT);
+    assert!(!app.loading_more);
+    assert!(!app.end_reached);
+    assert!(matches!(app.status, Status::Ready));
+    // A seleção fica onde estava: a página entra no fim, não no lugar do cursor.
+    assert_eq!(app.table_state.selected(), Some(ROW_LIMIT - 1));
+
+    // Chegou no registro 400: mais 200.
+    app.on_key(KeyEvent::from(KeyCode::Char('G')));
+    assert!(app.loading_more);
+    app.on_response(pagina("events", 2 * ROW_LIMIT + 1, ROW_LIMIT));
+    assert_eq!(app.row_count(), 3 * ROW_LIMIT);
+}
+
+#[test]
+fn pagina_curta_marca_o_fim_da_tabela() {
+    let mut app = grade_com("events", ROW_LIMIT);
+    app.on_key(KeyEvent::from(KeyCode::Char('G')));
+    assert!(app.loading_more);
+
+    app.on_response(pagina("events", ROW_LIMIT + 1, 12));
+    assert!(app.end_reached);
+    assert_eq!(app.row_count(), ROW_LIMIT + 12);
+
+    // No fim da tabela não há mais o que pedir.
+    app.on_key(KeyEvent::from(KeyCode::Char('G')));
+    assert_eq!(app.table_state.selected(), Some(ROW_LIMIT + 11));
+    assert!(!app.loading_more);
+}
+
+#[test]
+fn pagina_que_chega_depois_de_trocar_de_tabela_e_descartada() {
+    let mut app = grade_com("events", 10);
+    app.table_state.select(Some(8));
+    app.on_key(KeyEvent::from(KeyCode::Char('j'))); // chegou no fim: pede a próxima
+    assert!(app.loading_more);
+
+    // A resposta da primeira página de outra tabela chega antes.
+    app.on_response(Response::Rows {
+        table: String::from("users"),
+        offset: 0,
+        limit: ROW_LIMIT,
+        data: TableData {
+            columns: vec![String::from("id")],
+            kinds: vec![ColumnKind::Number],
+            rows: vec![vec![String::from("1")]],
+            primary_key: vec![0],
+        },
+    });
+    assert_eq!(app.current.as_deref(), Some("users"));
+
+    // A página atrasada de `events` não pode entrar na grade de `users`.
+    app.on_response(pagina("events", 11, 5));
+    assert_eq!(app.current.as_deref(), Some("users"));
+    assert_eq!(app.row_count(), 1);
+}
+
+#[test]
+fn recarregar_a_mesma_tabela_pede_as_linhas_ja_carregadas() {
+    let app = grade_com("events", 2 * ROW_LIMIT);
+    assert_eq!(app.page_limit("events"), 2 * ROW_LIMIT);
+    // Outra tabela começa do zero.
+    assert_eq!(app.page_limit("users"), ROW_LIMIT);
+    // Uma tabela com menos de uma página também pede ao menos uma página.
+    let app = grade_com("events", 3);
+    assert_eq!(app.page_limit("events"), ROW_LIMIT);
+}
+
+#[test]
+fn falha_na_pagina_libera_a_proxima_tentativa() {
+    let mut app = grade_com("events", 10);
+    app.table_state.select(Some(8));
+    app.on_key(KeyEvent::from(KeyCode::Char('j')));
+    assert!(app.loading_more);
+
+    app.on_response(Response::Failed(String::from("conexão caiu")));
+    assert!(!app.loading_more);
+    assert!(matches!(app.status, Status::Failed(ref erro) if erro == "conexão caiu"));
+
+    // A tabela não acabou: subir e descer de novo ao fim tenta outra página.
+    app.on_key(KeyEvent::from(KeyCode::Char('k')));
+    assert!(!app.loading_more);
+    app.on_key(KeyEvent::from(KeyCode::Char('j')));
+    assert!(app.loading_more);
+}
+
+#[test]
+fn segurar_a_tecla_no_fim_da_pagina_nao_pede_de_novo() {
+    let mut app = grade_com("events", 10);
+    app.table_state.select(Some(8));
+    app.on_key(KeyEvent::from(KeyCode::Char('j')));
+    assert!(app.loading_more);
+    // A resposta chega e a página nova entra: a seleção não se moveu.
+    app.on_response(pagina("events", 11, ROW_LIMIT));
+    assert!(!app.loading_more);
+    assert_eq!(app.row_count(), 10 + ROW_LIMIT);
+
+    // No fim da página carregada, repetir `j` não pede nada.
+    app.table_state.select(Some(10 + ROW_LIMIT - 1));
+    for _ in 0..5 {
+        app.on_key(KeyEvent::from(KeyCode::Char('j')));
+    }
+    assert_eq!(app.table_state.selected(), Some(10 + ROW_LIMIT - 1));
+    assert!(
+        !app.loading_more,
+        "tecla repetida no fim não pode pedir página"
+    );
+
+    // `G` já no fim também não.
+    for _ in 0..5 {
+        app.on_key(KeyEvent::from(KeyCode::Char('G')));
+    }
+    assert!(!app.loading_more);
 }

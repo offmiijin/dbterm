@@ -4,7 +4,7 @@ use mysql::consts::ColumnType;
 use mysql::prelude::Queryable;
 use mysql::{Conn, Value};
 
-use super::{ColumnKind, ROW_LIMIT, TableData};
+use super::{ColumnKind, TableData};
 
 pub(super) fn tables(conn: &mut Conn) -> mysql::Result<Vec<String>> {
     conn.query(
@@ -14,12 +14,13 @@ pub(super) fn tables(conn: &mut Conn) -> mysql::Result<Vec<String>> {
     )
 }
 
-pub(super) fn rows(conn: &mut Conn, table: &str) -> mysql::Result<TableData> {
-    // Identificador não vai como parâmetro: escapamos com crase dobrada.
-    let sql = format!(
-        "SELECT * FROM `{}` LIMIT {ROW_LIMIT}",
-        table.replace('`', "``")
-    );
+pub(super) fn rows(
+    conn: &mut Conn,
+    table: &str,
+    offset: usize,
+    limit: usize,
+) -> mysql::Result<TableData> {
+    let sql = rows_sql(table, offset, limit);
     let mut result = conn.query_iter(sql)?;
     let columns = result.columns();
     let kinds: Vec<ColumnKind> = columns
@@ -48,6 +49,15 @@ pub(super) fn rows(conn: &mut Conn, table: &str) -> mysql::Result<TableData> {
         rows,
         primary_key,
     })
+}
+
+/// `SELECT *` de uma página da tabela. O identificador não vai como parâmetro:
+/// escapamos com crase dobrada.
+fn rows_sql(table: &str, offset: usize, limit: usize) -> String {
+    format!(
+        "SELECT * FROM `{}` LIMIT {limit} OFFSET {offset}",
+        quote(table)
+    )
 }
 
 /// Número ou texto, a partir do tipo que veio no result set.
@@ -137,6 +147,18 @@ fn cell(value: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn monta_select_paginado() {
+        assert_eq!(
+            rows_sql("users", 0, 200),
+            "SELECT * FROM `users` LIMIT 200 OFFSET 0"
+        );
+        assert_eq!(
+            rows_sql("we`ird", 200, 200),
+            "SELECT * FROM `we``ird` LIMIT 200 OFFSET 200"
+        );
+    }
 
     #[test]
     fn monta_update_parametrizado() {

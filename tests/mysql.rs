@@ -61,7 +61,7 @@ fn container_mysql_serve_dados_para_a_tui() {
         );
     }
 
-    let usuarios = paginas(&db, "users");
+    let usuarios = paginas(&db, "users", 0);
     assert!(
         usuarios.rows.len() >= 30,
         "esperava 30+ usuários, veio {}",
@@ -85,7 +85,7 @@ fn container_mysql_serve_dados_para_a_tui() {
         "esperava NULL"
     );
 
-    let pedidos = paginas(&db, "orders");
+    let pedidos = paginas(&db, "orders", 0);
     assert!(
         pedidos.columns.contains(&String::from("total")),
         "colunas: {:?}",
@@ -97,9 +97,20 @@ fn container_mysql_serve_dados_para_a_tui() {
         pedidos.rows.len()
     );
 
-    // A grade do dbterm busca no máximo ROW_LIMIT linhas por consulta.
-    let eventos = paginas(&db, "events");
+    // A grade do dbterm busca ROW_LIMIT linhas por página e vai pedindo as
+    // seguintes conforme o usuário desce: 500 eventos = 200 + 200 + 100.
+    let eventos = paginas(&db, "events", 0);
     assert_eq!(eventos.rows.len(), ROW_LIMIT);
+    let segunda = paginas(&db, "events", ROW_LIMIT);
+    assert_eq!(segunda.rows.len(), ROW_LIMIT);
+    let ultima = paginas(&db, "events", 2 * ROW_LIMIT);
+    assert_eq!(
+        ultima.rows.len(),
+        100,
+        "500 eventos: a última página tem 100"
+    );
+    // Página além do fim: a tabela acabou.
+    assert!(paginas(&db, "events", 500).rows.is_empty());
 
     // Primeiro caminho de escrita: a chave primária vem junto com a página.
     let id_idx = usuarios
@@ -131,7 +142,7 @@ fn container_mysql_serve_dados_para_a_tui() {
         Some(Response::Updated { .. }) => {}
         outra => panic!("esperava Updated depois do UPDATE, veio {outra:?}"),
     }
-    let depois = paginas(&db, "users");
+    let depois = paginas(&db, "users", 0);
     let atualizado = depois
         .rows
         .iter()
@@ -238,9 +249,11 @@ fn tabelas(db: &Db) -> Vec<String> {
     }
 }
 
-fn paginas(db: &Db, tabela: &str) -> TableData {
+fn paginas(db: &Db, tabela: &str, offset: usize) -> TableData {
     db.request(Request::Rows {
         table: tabela.to_string(),
+        offset,
+        limit: ROW_LIMIT,
     });
     match esperar(db, Duration::from_secs(30)) {
         Some(Response::Rows { data, .. }) => data,
