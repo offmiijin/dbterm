@@ -17,8 +17,10 @@ use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event, KeyEventKind};
 use ratatui::widgets::{ListState, TableState};
 
-use crate::config::{Connection, Field};
-use crate::db::{Db, ROW_LIMIT, Request, Response, TableData};
+use crate::config::{Connection, DatabaseField, Field};
+use crate::db::{
+    Collation, DatabaseAlter, DatabaseInfo, Db, ROW_LIMIT, Request, Response, TableData,
+};
 use crate::history::{History, Saved};
 use crate::ui;
 
@@ -107,6 +109,143 @@ pub struct ConnectionEdit {
     pub field: Field,
 }
 
+/// Edição em andamento de um banco, aberta pelo `e` nos bancos.
+#[derive(Debug)]
+pub struct DatabaseEdit {
+    /// Como o banco está no servidor: só o que mudar daqui vira `ALTER`.
+    pub original: DatabaseInfo,
+    /// Os valores como estão no pop-up.
+    pub values: DatabaseInfo,
+    /// Campo em edição no pop-up.
+    pub field: DatabaseField,
+    /// Lista aberta de um dos campos, enquanto o usuário escolhe.
+    pub picker: Option<Picker>,
+}
+
+/// Lista de opções aberta sobre o pop-up do banco.
+#[derive(Debug)]
+pub struct Picker {
+    /// Campo que a lista está escolhendo.
+    pub field: DatabaseField,
+    pub items: Vec<String>,
+    /// Item destacado.
+    pub index: usize,
+}
+
+impl DatabaseEdit {
+    pub fn new(info: DatabaseInfo) -> Self {
+        Self {
+            original: info.clone(),
+            values: info,
+            field: DatabaseField::Charset,
+            picker: None,
+        }
+    }
+
+    /// Campos do pop-up na ordem de tabulação: os que o servidor informa.
+    pub fn fields(&self) -> Vec<DatabaseField> {
+        DatabaseField::ALL
+            .into_iter()
+            .filter(|field| self.available(*field))
+            .collect()
+    }
+
+    /// O servidor informa este campo? A opção de somente leitura só existe da
+    /// 8.0.22 em diante.
+    pub fn available(&self, field: DatabaseField) -> bool {
+        match field {
+            DatabaseField::Charset | DatabaseField::Collation => true,
+            DatabaseField::ReadOnly => self.values.read_only.is_some(),
+        }
+    }
+
+    /// Valor do campo como aparece no pop-up.
+    pub fn value(&self, field: DatabaseField) -> String {
+        match field {
+            DatabaseField::Charset => self.values.charset.clone(),
+            DatabaseField::Collation => self.values.collation.clone(),
+            DatabaseField::ReadOnly => sim_nao(self.values.read_only),
+        }
+    }
+
+    /// Collations que combinam com o charset escolhido.
+    pub fn collations(&self) -> impl Iterator<Item = &Collation> {
+        self.values
+            .collations
+            .iter()
+            .filter(|collation| collation.charset == self.values.charset)
+    }
+
+    /// Opções do campo, na ordem em que aparecem na lista.
+    pub fn options(&self, field: DatabaseField) -> Vec<String> {
+        match field {
+            DatabaseField::Charset => self
+                .values
+                .charsets
+                .iter()
+                .map(|charset| charset.name.clone())
+                .collect(),
+            DatabaseField::Collation => self
+                .collations()
+                .map(|collation| collation.name.clone())
+                .collect(),
+            DatabaseField::ReadOnly => Vec::new(),
+        }
+    }
+
+    /// Espaço no campo com foco: abre a lista do campo ou, no sim/não, alterna.
+    pub fn activate(&mut self) {
+        match self.field {
+            DatabaseField::ReadOnly => {
+                self.values.read_only = self.values.read_only.map(|valor| !valor);
+            }
+            campo => {
+                let items = self.options(campo);
+                if items.is_empty() {
+                    return;
+                }
+                // A lista abre no valor atual, que pode estar em qualquer ponto.
+                let atual = self.value(campo);
+                let index = items.iter().position(|item| *item == atual).unwrap_or(0);
+                self.picker = Some(Picker {
+                    field: campo,
+                    items,
+                    index,
+                });
+            }
+        }
+    }
+
+    /// Aplica na escolha da lista o valor do campo.
+    pub fn choose(&mut self, field: DatabaseField, item: String) {
+        match field {
+            DatabaseField::Charset => {
+                self.values.charset = item;
+                // A collation acompanha o charset: vai para a padrão dele.
+                if let Some(charset) = self
+                    .values
+                    .charsets
+                    .iter()
+                    .find(|charset| charset.name == self.values.charset)
+                {
+                    self.values.collation = charset.default_collation.clone();
+                }
+            }
+            DatabaseField::Collation => self.values.collation = item,
+            DatabaseField::ReadOnly => {}
+        }
+    }
+}
+
+/// "sim"/"não" das opções; "—" quando o servidor não informa.
+fn sim_nao(valor: Option<bool>) -> String {
+    match valor {
+        Some(true) => String::from("sim"),
+        Some(false) => String::from("não"),
+        None => String::from("—"),
+    }
+}
+
 pub struct App {
     pub screen: Screen,
     /// Conexões rápidas salvas, da mais recente para a mais antiga.
@@ -137,6 +276,8 @@ pub struct App {
     pub edit: Option<Edit>,
     /// Edição da conexão selecionada, aberta pelo `e` nas conexões.
     pub connection_edit: Option<ConnectionEdit>,
+    /// Edição do banco selecionado, aberta pelo `e` nos bancos.
+    pub database_edit: Option<DatabaseEdit>,
     pub should_quit: bool,
     /// Seleção nas listas de conexões, bancos e tabelas. Só a do nível ativo
     /// aparece, mas cada uma guarda onde o usuário parou.
@@ -195,6 +336,7 @@ impl App {
             quit_return: Mode::Rows,
             edit: None,
             connection_edit: None,
+            database_edit: None,
             should_quit: false,
             connections_state: ListState::default(),
             databases_state: ListState::default(),
@@ -268,6 +410,13 @@ impl App {
                 if let Some(database) = escolhido.and_then(|i| self.databases.get(i)).cloned() {
                     self.use_database(database);
                 }
+            }
+            Response::DatabaseInfo(info) => {
+                self.status = Status::Ready;
+                self.database_edit = Some(DatabaseEdit::new(info));
+            }
+            Response::DatabaseUpdated { database } => {
+                self.status = Status::Notice(format!("banco {database} atualizado"));
             }
             Response::Database(database) => {
                 self.database = database;
@@ -515,6 +664,36 @@ impl App {
         let index = edit.saved;
         self.connection_edit = None;
         self.history.replace(index, saved);
+    }
+
+    /// `e` nos bancos: pede ao servidor as propriedades do banco selecionado;
+    /// o pop-up abre quando a resposta chega.
+    pub(super) fn request_database_edit(&mut self) {
+        let Some(database) = self
+            .databases_state
+            .selected()
+            .and_then(|index| self.databases.get(index))
+            .cloned()
+        else {
+            return;
+        };
+        self.status = Status::Loading(format!("banco {database}"));
+        self.db.request(Request::DatabaseInfo { database });
+    }
+
+    /// Aplica no servidor só o que mudou no banco.
+    pub(super) fn save_database_edit(&mut self) {
+        let Some(edit) = self.database_edit.as_ref() else {
+            return;
+        };
+        let alter = DatabaseAlter::between(&edit.original, &edit.values);
+        let database = edit.values.name.clone();
+        self.database_edit = None;
+        if alter.is_empty() {
+            return;
+        }
+        self.status = Status::Loading(format!("banco {database}"));
+        self.db.request(Request::AlterDatabase { database, alter });
     }
 
     /// Monta a URL do formulário e pede a conexão; erros ficam na tela.

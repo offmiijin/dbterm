@@ -26,8 +26,13 @@ use crate::history::Saved;
 use crate::theme;
 
 const KEYS: &str = "q sair · c/b/t nível · esc subir · j/k mover · enter abrir · h/l colunas · r recarregar · g/G topo/fim";
-/// Nas conexões o `e` entra como ação de edição da conexão selecionada.
-const KEYS_CONNECTIONS: &str = "q sair · c/b/t nível · esc subir · e editar · j/k mover · enter abrir · r recarregar · g/G topo/fim";
+/// Nas conexões e nos bancos o `e` entra como ação de edição do nível.
+const KEYS_WITH_EDIT: &str = "q sair · c/b/t nível · esc subir · e editar · j/k mover · enter abrir · r recarregar · g/G topo/fim";
+/// Teclas do pop-up de conexão.
+/// Teclas dos pop-ups de edição (conexão e banco).
+const POPUP_KEYS: &str = "s salvar · esc cancelar";
+/// Teclas da lista de opções aberta sobre o pop-up de banco.
+const PICKER_KEYS: &str = "j/k mover · enter escolher · esc voltar";
 /// Espaço que a mensagem de estado nunca perde para a linha de atalhos.
 const MIN_STATUS: u16 = 32;
 
@@ -84,6 +89,7 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         larguras,
         end_reached,
         connection_edit,
+        database_edit,
         history,
         ..
     } = app;
@@ -152,14 +158,19 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         mode,
     );
 
-    draw_footer(
-        frame,
-        footer,
-        status,
-        keys(*mode, *focus, connection_edit.is_some()),
-        data,
-        *end_reached,
-    );
+    let teclas = if connection_edit.is_some() {
+        POPUP_KEYS
+    } else if database_edit
+        .as_ref()
+        .is_some_and(|edit| edit.picker.is_some())
+    {
+        PICKER_KEYS
+    } else if database_edit.is_some() {
+        POPUP_KEYS
+    } else {
+        keys(*mode, *focus)
+    };
+    draw_footer(frame, footer, status, teclas, data, *end_reached);
     popup::draw_overlays(
         frame,
         frame.area(),
@@ -169,6 +180,7 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         current.as_deref(),
     );
     popup::draw_connection_edit(frame, frame.area(), connection_edit.as_ref());
+    popup::draw_database_edit(frame, frame.area(), database_edit.as_ref());
 }
 
 fn draw_header(frame: &mut Frame, area: Rect, server: &str, database: &str, table: Option<&str>) {
@@ -229,14 +241,11 @@ fn draw_footer(
     );
 }
 
-/// Atalhos mostrados no rodapé: o pop-up de conexão manda, depois o modo e,
-/// nas conexões, o `e` que abre a edição.
-fn keys(mode: Mode, focus: Focus, editando_conexao: bool) -> &'static str {
-    if editando_conexao {
-        return "tab campo · enter salvar · esc cancelar";
-    }
+/// Atalhos mostrados no rodapé: o modo decide o texto e, na cascata, o `e`
+/// entra como ação de edição do nível ativo.
+fn keys(mode: Mode, focus: Focus) -> &'static str {
     match mode {
-        Mode::Rows if focus == Focus::Connections => KEYS_CONNECTIONS,
+        Mode::Rows if matches!(focus, Focus::Connections | Focus::Databases) => KEYS_WITH_EDIT,
         Mode::Rows => KEYS,
         Mode::Columns => "h/l coluna · enter editar · esc voltar",
         Mode::Edit => "enter continuar · esc cancelar",

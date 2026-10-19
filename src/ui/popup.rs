@@ -8,8 +8,8 @@ use ratatui::widgets::{Block, BorderType, Clear, Padding, Paragraph};
 
 use super::connect::mostrado;
 use super::text::largura;
-use crate::app::{ConnectionEdit, Edit, Mode};
-use crate::config::{Connection, Field};
+use crate::app::{ConnectionEdit, DatabaseEdit, Edit, Mode, Picker};
+use crate::config::{DatabaseField, Field};
 use crate::db::{SqlPart, TableData, update_preview};
 use crate::theme;
 
@@ -87,6 +87,8 @@ pub(super) fn draw_overlays(
 
 /// Largura do rótulo de cada campo do pop-up de conexão.
 const CAMPO_ROTULO: usize = 8;
+/// Largura do rótulo dos campos do pop-up de banco ("Somente leitura" manda).
+const BANCO_ROTULO: usize = 15;
 /// Respiro entre o rótulo e o valor e entre dois campos na mesma linha.
 const CAMPO_ESPACO: usize = 2;
 /// Largura do campo "Porta", que divide a linha com o "Host".
@@ -102,28 +104,18 @@ pub(super) fn draw_connection_edit(frame: &mut Frame, area: Rect, edit: Option<&
     // "Host" e "Porta" lado a lado: a porta fica com a largura fixa e o host
     // com o resto da linha.
     let host = conteudo.saturating_sub(PORTA + CAMPO_ESPACO);
-    let mut linha_host = campo(
-        &edit.connection,
-        Field::Host,
-        edit.field == Field::Host,
-        host,
-    );
+    let mut linha_host = campo_conexao(edit, Field::Host, CAMPO_ROTULO, host);
     linha_host.push(Span::styled(" ".repeat(CAMPO_ESPACO), theme::base()));
-    linha_host.extend(campo(
-        &edit.connection,
-        Field::Port,
-        edit.field == Field::Port,
-        PORTA,
-    ));
+    linha_host.extend(campo_conexao(edit, Field::Port, CAMPO_ROTULO, PORTA));
 
     let lines = vec![
         Line::from("Servidor").style(theme::header()),
         Line::from(linha_host),
-        campo_linha(&edit.connection, edit, Field::Database, conteudo),
+        campo_linha(edit, Field::Database, conteudo),
         Line::from(""),
         Line::from("Autenticação").style(theme::header()),
-        campo_linha(&edit.connection, edit, Field::User, conteudo),
-        campo_linha(&edit.connection, edit, Field::Password, conteudo),
+        campo_linha(edit, Field::User, conteudo),
+        campo_linha(edit, Field::Password, conteudo),
         Line::from(popup_rule(area)).style(theme::muted()),
         linha_edicao(),
     ];
@@ -131,42 +123,178 @@ pub(super) fn draw_connection_edit(frame: &mut Frame, area: Rect, edit: Option<&
     popup(frame, area, "\u{f044} Editar", lines);
 }
 
-/// Uma linha do pop-up com um campo ocupando a largura toda.
-fn campo_linha(
-    connection: &Connection,
-    edit: &ConnectionEdit,
-    field: Field,
-    comprimento: usize,
-) -> Line<'static> {
-    Line::from(campo(connection, field, edit.field == field, comprimento))
+/// Uma linha do pop-up de conexão com um campo ocupando a largura toda.
+fn campo_linha(edit: &ConnectionEdit, field: Field, comprimento: usize) -> Line<'static> {
+    Line::from(campo_conexao(edit, field, CAMPO_ROTULO, comprimento))
 }
 
-/// Rótulo à direita e valor ocupando o resto de `comprimento`; o campo com foco
-/// ganha fundo e o cursor no fim.
-fn campo(
-    connection: &Connection,
+/// Spans de um campo da conexão, com o cursor quando ele tem o foco.
+fn campo_conexao(
+    edit: &ConnectionEdit,
     field: Field,
-    focado: bool,
+    rotulo_largura: usize,
     comprimento: usize,
 ) -> Vec<Span<'static>> {
-    let rotulo = format!(
-        "{:>width$}{}",
-        field.titulo(),
-        " ".repeat(CAMPO_ESPACO),
-        width = CAMPO_ROTULO
-    );
-    let mut valor = mostrado(connection, field);
+    let focado = edit.field == field;
+    let mut valor = mostrado(&edit.connection, field);
     if focado {
         valor.push('▏');
     }
-    let disponivel = comprimento.saturating_sub(CAMPO_ROTULO + CAMPO_ESPACO);
-    let valor = recorta(&valor, disponivel);
-    let preenchimento = disponivel.saturating_sub(largura(&valor));
     let estilo = if focado {
         theme::field()
     } else {
         theme::text()
     };
+    campo(&valor, field.titulo(), estilo, rotulo_largura, comprimento)
+}
+
+/// Pop-up "Editar" de um banco: a identificação, os padrões de texto e as
+/// opções que o servidor informa.
+pub(super) fn draw_database_edit(frame: &mut Frame, area: Rect, edit: Option<&DatabaseEdit>) {
+    let Some(edit) = edit else {
+        return;
+    };
+    // A lista aberta toma o lugar do pop-up até a escolha.
+    if let Some(picker) = edit.picker.as_ref() {
+        draw_picker(frame, area, picker);
+        return;
+    }
+    let conteudo = popup_content_width(area);
+    let mut lines = vec![
+        Line::from("Identificação").style(theme::header()),
+        // No MySQL não existe renomear banco: o nome é só identificação. O
+        // valor sai como o de um campo preenchido; só o rótulo fica apagado.
+        Line::from(campo(
+            &edit.values.name,
+            "Banco",
+            theme::text(),
+            BANCO_ROTULO,
+            conteudo,
+        )),
+        Line::from(campo(
+            &tamanho(edit.values.size_bytes),
+            "Tamanho",
+            theme::text(),
+            BANCO_ROTULO,
+            conteudo,
+        )),
+        Line::from("Padrões").style(theme::header()),
+        linha_banco(edit, DatabaseField::Charset, conteudo),
+        linha_banco(edit, DatabaseField::Collation, conteudo),
+    ];
+    if edit.available(DatabaseField::ReadOnly) {
+        lines.push(Line::from("Opções").style(theme::header()));
+        lines.push(linha_banco(edit, DatabaseField::ReadOnly, conteudo));
+    }
+    lines.push(Line::from(popup_rule(area)).style(theme::muted()));
+    lines.push(linha_acoes_banco());
+    // O ícone (Nerd Font) acompanha o título do pop-up.
+    popup(frame, area, "\u{f044} Editar", lines);
+}
+
+/// Uma linha do pop-up de banco; os campos de lista levam o marcador de
+/// dropdown e o de sim/não mostra o valor direto.
+fn linha_banco(edit: &DatabaseEdit, field: DatabaseField, comprimento: usize) -> Line<'static> {
+    let focado = edit.field == field;
+    let mut valor = edit.value(field);
+    if field.dropdown() {
+        valor.insert_str(0, "▾ ");
+    }
+    let estilo = if focado {
+        theme::field()
+    } else {
+        theme::text()
+    };
+    Line::from(campo(
+        &valor,
+        field.titulo(),
+        estilo,
+        BANCO_ROTULO,
+        comprimento,
+    ))
+}
+
+/// Lista de opções do campo: a janela acompanha o item destacado.
+fn draw_picker(frame: &mut Frame, area: Rect, picker: &Picker) {
+    let conteudo = popup_content_width(area);
+    // O pop-up gasta duas linhas com a régua e as ações, mais as bordas.
+    let altura = area.height.saturating_sub(4) as usize;
+    let total = picker.items.len();
+    let visiveis = altura.min(total).max(1);
+    let inicio = janela(picker.index, visiveis, total);
+    let mut lines: Vec<Line<'static>> = picker.items[inicio..inicio + visiveis]
+        .iter()
+        .enumerate()
+        .map(|(offset, item)| item_lista(item, inicio + offset == picker.index, conteudo))
+        .collect();
+    lines.push(Line::from(popup_rule(area)).style(theme::muted()));
+    lines.push(linha_acoes_lista());
+    // O ícone (Nerd Font) de caret para baixo indica a lista aberta.
+    popup(
+        frame,
+        area,
+        &format!("\u{f0d7} {}", picker.field.titulo()),
+        lines,
+    );
+}
+
+/// Primeira linha da janela da lista: o item destacado fica no meio quando há
+/// espaço dos dois lados e a janela não passa do fim.
+pub(super) fn janela(index: usize, visiveis: usize, total: usize) -> usize {
+    index
+        .saturating_sub(visiveis / 2)
+        .min(total.saturating_sub(visiveis))
+}
+
+/// Uma opção da lista, com o fundo da seleção cobrindo a linha inteira.
+fn item_lista(item: &str, selecionado: bool, comprimento: usize) -> Line<'static> {
+    let marcador = if selecionado { "❯ " } else { "  " };
+    let mut texto = format!("{marcador}{item}");
+    texto.push_str(&" ".repeat(comprimento.saturating_sub(largura(&texto))));
+    let estilo = if selecionado {
+        theme::selected()
+    } else {
+        theme::text()
+    };
+    Line::from(Span::styled(texto, estilo))
+}
+
+/// Tamanho legível: `0 B`, `12.3 KB`, `742 MB`, `1.5 GB`.
+pub(super) fn tamanho(bytes: u64) -> String {
+    const UNIDADES: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut valor = bytes as f64;
+    let mut unidade = 0;
+    while valor >= 1024.0 && unidade + 1 < UNIDADES.len() {
+        valor /= 1024.0;
+        unidade += 1;
+    }
+    if unidade == 0 {
+        return format!("{bytes} B");
+    }
+    if valor < 10.0 {
+        format!("{valor:.1} {}", UNIDADES[unidade])
+    } else {
+        format!("{valor:.0} {}", UNIDADES[unidade])
+    }
+}
+
+/// Rótulo à direita e valor ocupando o resto de `comprimento`, no estilo dado.
+fn campo(
+    valor: &str,
+    rotulo: &str,
+    estilo: Style,
+    rotulo_largura: usize,
+    comprimento: usize,
+) -> Vec<Span<'static>> {
+    let rotulo = format!(
+        "{:>width$}{}",
+        rotulo,
+        " ".repeat(CAMPO_ESPACO),
+        width = rotulo_largura
+    );
+    let disponivel = comprimento.saturating_sub(rotulo_largura + CAMPO_ESPACO);
+    let valor = recorta(valor, disponivel);
+    let preenchimento = disponivel.saturating_sub(largura(&valor));
     vec![
         Span::styled(rotulo, theme::muted()),
         Span::styled(format!("{valor}{}", " ".repeat(preenchimento)), estilo),
@@ -190,15 +318,36 @@ fn recorta(valor: &str, limite: usize) -> String {
     String::from("…")
 }
 
-/// Ações do pop-up de conexão: aqui `tab` também anda nos campos.
+/// Ações do pop-up de conexão: `s` grava e `esc` descarta.
 fn linha_edicao() -> Line<'static> {
     Line::from(vec![
-        Span::styled("tab", theme::accent()),
-        Span::styled(" campo · ", theme::text()),
-        Span::styled("enter", theme::accent()),
+        Span::styled("s", theme::accent()),
         Span::styled(" salvar · ", theme::text()),
         Span::styled("esc", theme::accent()),
         Span::styled(" cancelar", theme::text()),
+    ])
+}
+
+/// Ações do pop-up de banco: `enter` abre a lista do campo (ou alterna o
+/// sim/não) e `s` grava.
+fn linha_acoes_banco() -> Line<'static> {
+    Line::from(vec![
+        Span::styled("s", theme::accent()),
+        Span::styled(" salvar · ", theme::text()),
+        Span::styled("esc", theme::accent()),
+        Span::styled(" cancelar", theme::text()),
+    ])
+}
+
+/// Ações da lista de opções.
+fn linha_acoes_lista() -> Line<'static> {
+    Line::from(vec![
+        Span::styled("j/k", theme::accent()),
+        Span::styled(" mover · ", theme::text()),
+        Span::styled("enter", theme::accent()),
+        Span::styled(" escolher · ", theme::text()),
+        Span::styled("esc", theme::accent()),
+        Span::styled(" voltar", theme::text()),
     ])
 }
 

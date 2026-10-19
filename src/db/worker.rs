@@ -6,7 +6,7 @@ use std::thread;
 
 use mysql::{Conn, Opts};
 
-use super::mysql::{databases, rows, tables, update, use_database};
+use super::mysql::{alter_database, database_info, databases, rows, tables, update, use_database};
 use super::{Request, Response};
 
 /// Canal da UI para a thread de trabalho e volta.
@@ -76,6 +76,20 @@ fn worker(tx: &Sender<Response>, rx: &Receiver<Request>) {
                 Some(conn) => match databases(conn) {
                     Ok(databases) => Response::Databases(databases),
                     Err(err) => Response::Failed(err.to_string()),
+                },
+                None => sem_conexao(),
+            },
+            Request::DatabaseInfo { database } => match conn.as_mut() {
+                Some(conn) => match database_info(conn, &database) {
+                    Ok(info) => Response::DatabaseInfo(info),
+                    Err(err) => Response::Failed(err),
+                },
+                None => sem_conexao(),
+            },
+            Request::AlterDatabase { database, alter } => match conn.as_mut() {
+                Some(conn) => match alter_database(conn, &database, &alter) {
+                    Ok(()) => Response::DatabaseUpdated { database },
+                    Err(err) => Response::Failed(err),
                 },
                 None => sem_conexao(),
             },

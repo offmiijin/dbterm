@@ -1,5 +1,5 @@
-//! Configuração de inicialização: a URL de conexão e o formulário da tela
-//! de conexão.
+//! Configuração de inicialização: a URL de conexão e os campos dos formulários
+//! (tela de conexão e pop-ups de edição).
 
 /// Campo do formulário de conexão, na ordem em que aparece na tela.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -51,6 +51,37 @@ impl Field {
             Field::Password => "Senha",
             Field::Database => "Banco",
         }
+    }
+}
+
+/// Campo do pop-up "Editar" do banco, na ordem de tabulação.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DatabaseField {
+    Charset,
+    Collation,
+    ReadOnly,
+}
+
+impl DatabaseField {
+    /// Todos os campos, na ordem de exibição e de tabulação.
+    pub const ALL: [DatabaseField; 3] = [
+        DatabaseField::Charset,
+        DatabaseField::Collation,
+        DatabaseField::ReadOnly,
+    ];
+
+    /// Rótulo mostrado à esquerda do valor.
+    pub fn titulo(self) -> &'static str {
+        match self {
+            DatabaseField::Charset => "Charset",
+            DatabaseField::Collation => "Collation",
+            DatabaseField::ReadOnly => "Somente leitura",
+        }
+    }
+
+    /// O campo abre uma lista de opções? O sim/não alterna direto com espaço.
+    pub fn dropdown(self) -> bool {
+        matches!(self, DatabaseField::Charset | DatabaseField::Collation)
     }
 }
 

@@ -30,10 +30,14 @@ impl App {
     }
 
     fn on_key_browse(&mut self, key: KeyEvent) {
-        // O pop-up da conexão fica por cima de tudo: enquanto aberto, as
+        // Os pop-ups ficam por cima de tudo: enquanto um está aberto, as
         // teclas são dele.
         if self.connection_edit.is_some() {
             self.on_key_connection_edit(key);
+            return;
+        }
+        if self.database_edit.is_some() {
+            self.on_key_database_edit(key);
             return;
         }
         match self.mode {
@@ -80,19 +84,14 @@ impl App {
 
     /// Anda um campo da lista, dando a volta nas pontas.
     fn move_field(&mut self, delta: isize, campos: &[Field]) {
-        let atual = campos
-            .iter()
-            .position(|field| *field == self.field)
-            .unwrap_or(0);
-        let proximo = (atual as isize + delta).rem_euclid(campos.len() as isize) as usize;
-        self.field = campos[proximo];
+        self.field = next(self.field, delta, campos);
     }
 
-    /// Pop-up "Editar" da conexão: `tab` anda nos campos e `enter` grava.
+    /// Pop-up "Editar" da conexão: `tab` anda nos campos e `s` grava.
     fn on_key_connection_edit(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Esc => self.connection_edit = None,
-            KeyCode::Enter => self.save_connection_edit(),
+            KeyCode::Char('s') => self.save_connection_edit(),
             KeyCode::Tab | KeyCode::Down => self.move_edit_field(1),
             KeyCode::BackTab | KeyCode::Up => self.move_edit_field(-1),
             KeyCode::Backspace => {
@@ -120,13 +119,75 @@ impl App {
         let Some(edit) = self.connection_edit.as_mut() else {
             return;
         };
-        let campos = Field::EDICAO;
-        let atual = campos
-            .iter()
-            .position(|field| *field == edit.field)
-            .unwrap_or(0);
-        let proximo = (atual as isize + delta).rem_euclid(campos.len() as isize) as usize;
-        edit.field = campos[proximo];
+        edit.field = next(edit.field, delta, &Field::EDICAO);
+    }
+
+    /// Pop-up "Editar" do banco: `j`/`k` andam nos campos, `enter` abre a lista
+    /// do campo (ou alterna o sim/não), `s` grava, `esc` descarta.
+    fn on_key_database_edit(&mut self, key: KeyEvent) {
+        // A lista aberta fica por cima do pop-up e recebe as teclas.
+        if self
+            .database_edit
+            .as_ref()
+            .is_some_and(|edit| edit.picker.is_some())
+        {
+            self.on_key_picker(key);
+            return;
+        }
+        match key.code {
+            KeyCode::Esc => self.database_edit = None,
+            KeyCode::Char('s') => self.save_database_edit(),
+            KeyCode::Enter => {
+                if let Some(edit) = self.database_edit.as_mut() {
+                    edit.activate();
+                }
+            }
+            KeyCode::Tab | KeyCode::Down | KeyCode::Char('j') => self.move_database_field(1),
+            KeyCode::BackTab | KeyCode::Up | KeyCode::Char('k') => self.move_database_field(-1),
+            _ => {}
+        }
+    }
+
+    /// Lista de opções aberta: `j`/`k` andam, `enter` escolhe, `esc` volta.
+    fn on_key_picker(&mut self, key: KeyEvent) {
+        let Some(edit) = self.database_edit.as_mut() else {
+            return;
+        };
+        match key.code {
+            KeyCode::Esc => edit.picker = None,
+            KeyCode::Enter => {
+                let escolha = edit.picker.take().and_then(|picker| {
+                    picker
+                        .items
+                        .get(picker.index)
+                        .cloned()
+                        .map(|item| (picker.field, item))
+                });
+                if let Some((campo, item)) = escolha {
+                    edit.choose(campo, item);
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let Some(picker) = edit.picker.as_mut() {
+                    picker.index = step(Some(picker.index), 1, picker.items.len()).unwrap_or(0);
+                }
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let Some(picker) = edit.picker.as_mut() {
+                    picker.index = step(Some(picker.index), -1, picker.items.len()).unwrap_or(0);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Anda entre os campos do banco que o servidor informou.
+    fn move_database_field(&mut self, delta: isize) {
+        let Some(edit) = self.database_edit.as_mut() else {
+            return;
+        };
+        let campos = edit.fields();
+        edit.field = next(edit.field, delta, &campos);
     }
 
     fn on_key_rows(&mut self, key: KeyEvent) {
@@ -154,8 +215,9 @@ impl App {
             KeyCode::Char('g') => self.select_edge(false),
             KeyCode::Char('G') => self.select_edge(true),
             KeyCode::Char('r') => self.reload(),
-            // `e` abre o pop-up de edição da conexão selecionada.
+            // `e` abre o pop-up de edição do nível: a conexão ou o banco.
             KeyCode::Char('e') if self.focus == Focus::Connections => self.open_connection_edit(),
+            KeyCode::Char('e') if self.focus == Focus::Databases => self.request_database_edit(),
             KeyCode::Enter => match self.focus {
                 Focus::Connections => self.open_selected_connection(),
                 Focus::Databases => self.use_selected_database(),
@@ -419,4 +481,11 @@ pub(super) fn step(current: Option<usize>, delta: isize, len: usize) -> Option<u
         return Some(0);
     };
     Some((current as isize + delta).clamp(0, len as isize - 1) as usize)
+}
+
+/// Próximo item da lista, dando a volta nas pontas; o primeiro quando o atual
+/// não está nela.
+pub(super) fn next<T: Copy + PartialEq>(atual: T, delta: isize, itens: &[T]) -> T {
+    let indice = itens.iter().position(|item| *item == atual).unwrap_or(0);
+    itens[(indice as isize + delta).rem_euclid(itens.len() as isize) as usize]
 }

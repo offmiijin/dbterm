@@ -68,6 +68,76 @@ impl TableData {
     }
 }
 
+/// Um charset do servidor e a collation que ele usa por padrão.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Charset {
+    pub name: String,
+    pub default_collation: String,
+}
+
+/// Uma collation do servidor e o charset a que ela pertence.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Collation {
+    pub name: String,
+    pub charset: String,
+}
+
+/// Propriedades de um banco (schema): o que o pop-up "Editar" mostra.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DatabaseInfo {
+    pub name: String,
+    /// Charset padrão das tabelas novas do banco.
+    pub charset: String,
+    /// Collation padrão das tabelas novas do banco.
+    pub collation: String,
+    /// `None` quando o servidor não informa a opção (antes do MySQL 8.0.22).
+    pub read_only: Option<bool>,
+    /// Dados mais índices das tabelas do banco, em bytes.
+    pub size_bytes: u64,
+    /// Charsets que o servidor oferece, para a lista de seleção.
+    pub charsets: Vec<Charset>,
+    /// Collations que o servidor oferece, com o charset de cada uma.
+    pub collations: Vec<Collation>,
+}
+
+/// As opções de um banco que mudaram; `None` fica como está no servidor.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct DatabaseAlter {
+    pub charset: Option<String>,
+    pub collation: Option<String>,
+    pub read_only: Option<bool>,
+}
+
+impl DatabaseAlter {
+    /// Só o que difere entre o que está no servidor e o que foi editado.
+    pub fn between(before: &DatabaseInfo, after: &DatabaseInfo) -> Self {
+        Self {
+            charset: (before.charset != after.charset).then(|| after.charset.clone()),
+            collation: (before.collation != after.collation).then(|| after.collation.clone()),
+            read_only: match (before.read_only, after.read_only) {
+                (antes, depois) if antes != depois => depois,
+                _ => None,
+            },
+        }
+    }
+
+    /// Nenhuma opção mudou: não há `ALTER` a executar.
+    pub fn is_empty(&self) -> bool {
+        self.charset.is_none() && self.collation.is_none() && self.read_only.is_none()
+    }
+}
+
+/// Nome de charset ou collation aceito no DDL: letras, números e `_`.
+///
+/// DDL não aceita placeholder para identificador, então esses nomes entram
+/// na query: só o que passa por aqui pode ir para o texto do `ALTER`.
+pub(crate) fn identificador(valor: &str) -> bool {
+    !valor.is_empty()
+        && valor
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'_')
+}
+
 #[derive(Debug)]
 pub enum Request {
     /// Abre a conexão com a URL informada.
@@ -76,6 +146,13 @@ pub enum Request {
     Tables,
     /// Lista os bancos (schemas) do servidor.
     Databases,
+    /// Lê as propriedades do banco informado, para o pop-up "Editar".
+    DatabaseInfo { database: String },
+    /// Aplica as opções que mudaram no banco informado.
+    AlterDatabase {
+        database: String,
+        alter: DatabaseAlter,
+    },
     /// Passa a trabalhar no banco informado, na mesma conexão.
     UseDatabase { database: String },
     /// Busca uma página de `limit` linhas de uma tabela, a partir de `offset`.
@@ -103,6 +180,12 @@ pub enum Response {
     Tables(Vec<String>),
     /// Os bancos do servidor, em ordem alfabética.
     Databases(Vec<String>),
+    /// As propriedades do banco pedido no `DatabaseInfo`.
+    DatabaseInfo(DatabaseInfo),
+    /// O `ALTER DATABASE` foi aplicado.
+    DatabaseUpdated {
+        database: String,
+    },
     /// O banco atual mudou; a UI já pode pedir as tabelas dele.
     Database(String),
     Rows {
@@ -118,4 +201,69 @@ pub enum Response {
         table: String,
     },
     Failed(String),
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Charset, Collation, DatabaseAlter, DatabaseInfo, identificador};
+
+    fn info(charset: &str, collation: &str, read_only: Option<bool>) -> DatabaseInfo {
+        DatabaseInfo {
+            name: String::from("app"),
+            charset: String::from(charset),
+            collation: String::from(collation),
+            read_only,
+            size_bytes: 0,
+            charsets: vec![Charset {
+                name: String::from(charset),
+                default_collation: String::from(collation),
+            }],
+            collations: vec![Collation {
+                name: String::from(collation),
+                charset: String::from(charset),
+            }],
+        }
+    }
+
+    #[test]
+    fn alter_leva_so_o_que_mudou() {
+        let antes = info("utf8mb4", "utf8mb4_0900_ai_ci", Some(false));
+        let depois = info("utf8mb4", "utf8mb4_bin", Some(false));
+
+        let alter = DatabaseAlter::between(&antes, &depois);
+
+        assert_eq!(alter.charset, None);
+        assert_eq!(alter.collation.as_deref(), Some("utf8mb4_bin"));
+        assert_eq!(alter.read_only, None);
+        assert!(!alter.is_empty());
+    }
+
+    #[test]
+    fn alter_vazio_quando_nada_muda() {
+        let antes = info("utf8mb4", "utf8mb4_bin", Some(true));
+        let depois = antes.clone();
+
+        let alter = DatabaseAlter::between(&antes, &depois);
+
+        assert!(alter.is_empty());
+    }
+
+    #[test]
+    fn alter_sem_opcao_informada_nao_inventa_mudanca() {
+        // Servidor antigo: a opção chega como `None` dos dois lados.
+        let antes = info("utf8mb4", "utf8mb4_bin", None);
+        let depois = info("utf8mb4", "utf8mb4_bin", None);
+
+        assert!(DatabaseAlter::between(&antes, &depois).is_empty());
+    }
+
+    #[test]
+    fn identificador_recusa_o_que_nao_pode_entrar_no_ddl() {
+        assert!(identificador("utf8mb4_0900_ai_ci"));
+        assert!(identificador("binary"));
+        assert!(!identificador(""));
+        assert!(!identificador("utf8 mb4"));
+        assert!(!identificador("utf8mb4;DROP"));
+        assert!(!identificador("`x`"));
+    }
 }
