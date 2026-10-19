@@ -86,13 +86,13 @@ impl App {
     fn on_key_rows(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('q') => self.ask_quit(),
-            // Nos registros, `esc` volta às tabelas; nas tabelas, pede
-            // confirmação antes de sair.
-            KeyCode::Esc => match self.focus {
-                Focus::Tables => self.ask_quit(),
-                Focus::Data => self.focus = Focus::Tables,
-            },
-            // Trocar de painel é só com `enter`; `esc` volta para as tabelas.
+            // `esc` sobe um nível da cascata conexões → bancos → tabelas →
+            // registros; na raiz (conexões), pede confirmação para sair.
+            KeyCode::Esc => self.up_level(),
+            // As letras dos chips levam direto ao nível.
+            KeyCode::Char('c') => self.focus_level(Focus::Connections),
+            KeyCode::Char('b') => self.focus_level(Focus::Databases),
+            KeyCode::Char('t') => self.focus_level(Focus::Tables),
             // `h`/`l` andam na horizontal pelas colunas da grade, que podem não
             // caber todas na tela.
             KeyCode::Left | KeyCode::Char('h') if self.focus == Focus::Data => {
@@ -109,11 +109,30 @@ impl App {
             KeyCode::Char('G') => self.select_edge(true),
             KeyCode::Char('r') => self.reload(),
             KeyCode::Enter => match self.focus {
+                Focus::Connections => self.open_selected_connection(),
+                Focus::Databases => self.use_selected_database(),
                 Focus::Tables => self.open_selected_table(),
                 Focus::Data => self.enter_columns(),
             },
             _ => {}
         }
+    }
+
+    /// Sobe um nível da cascata; na raiz, pede confirmação para sair.
+    fn up_level(&mut self) {
+        match self.focus.above() {
+            Some(nivel) => self.focus = nivel,
+            None => self.ask_quit(),
+        }
+    }
+
+    /// Leva o foco direto ao nível pedido pelo chip, saindo do modo coluna.
+    fn focus_level(&mut self, focus: Focus) {
+        if self.focus == Focus::Data {
+            self.column = None;
+            self.mode = Mode::Rows;
+        }
+        self.focus = focus;
     }
 
     fn on_key_columns(&mut self, key: KeyEvent) {
@@ -251,6 +270,18 @@ impl App {
 
     fn move_selection(&mut self, delta: isize) {
         match self.focus {
+            Focus::Connections => {
+                let next = step(
+                    self.connections_state.selected(),
+                    delta,
+                    self.history.all().len(),
+                );
+                self.connections_state.select(next);
+            }
+            Focus::Databases => {
+                let next = step(self.databases_state.selected(), delta, self.databases.len());
+                self.databases_state.select(next);
+            }
             Focus::Tables => {
                 let len = self.tables.len();
                 let next = step(self.list_state.selected(), delta, len);
@@ -272,6 +303,20 @@ impl App {
 
     fn select_edge(&mut self, last: bool) {
         match self.focus {
+            Focus::Connections => {
+                let len = self.history.all().len();
+                if len > 0 {
+                    self.connections_state
+                        .select(Some(if last { len - 1 } else { 0 }));
+                }
+            }
+            Focus::Databases => {
+                let len = self.databases.len();
+                if len > 0 {
+                    self.databases_state
+                        .select(Some(if last { len - 1 } else { 0 }));
+                }
+            }
             Focus::Tables => {
                 if !self.tables.is_empty() {
                     self.list_state

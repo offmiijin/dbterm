@@ -4,7 +4,7 @@ use ratatui::buffer::Buffer;
 
 use super::draw;
 use super::grid::{RULE, linhas_visiveis};
-use crate::app::{App, Screen, Status};
+use crate::app::{App, Focus, Screen, Status};
 use crate::config::{Connection, Field};
 use crate::db::{ColumnKind, TableData};
 use crate::history::{History, Saved};
@@ -538,6 +538,59 @@ fn tela_inicial_vazia_pede_nova_conexao() {
     let screen = texto(terminal.backend().buffer());
     assert!(screen.contains("nenhuma conexão salva"), "{screen}");
     assert!(screen.contains("n nova conexão"), "{screen}");
+}
+
+#[test]
+fn chips_mostram_os_niveis_na_ordem_com_o_ativo_expandido() {
+    let mut app = app_com_dados();
+    app.databases = vec![String::from("app")];
+    app.focus = Focus::Databases;
+    let tela = screen(&mut app);
+    let conexoes = tela.find("[c]").expect("chip de conexões");
+    let bancos = tela.find("bancos (1)").expect("bancos ativo");
+    let tabelas = tela.find("[t]").expect("chip de tabelas");
+    assert!(conexoes < bancos && bancos < tabelas, "{tela}");
+    assert!(!tela.contains("[b]"), "o nível ativo não é um chip: {tela}");
+}
+
+#[test]
+fn com_as_tabelas_ativas_os_bancos_viram_chip() {
+    let mut app = app_com_dados();
+    app.databases = vec![String::from("app")];
+    app.focus = Focus::Tables;
+    let tela = screen(&mut app);
+    assert!(tela.contains("tabelas (1)"), "{tela}");
+    assert!(tela.contains("[c]"), "{tela}");
+    assert!(tela.contains("[b]"), "{tela}");
+}
+
+#[test]
+fn nomes_dos_niveis_usam_o_roxo_da_marca() {
+    let mut app = app_com_dados();
+    app.databases = vec![String::from("app")];
+    app.focus = Focus::Databases;
+    let terminal = terminal_de(&mut app, 80, 12);
+    let buffer = terminal.backend().buffer();
+
+    let (x, y) = achar(buffer, "bancos (1)");
+    assert_eq!(buffer.cell((x, y)).unwrap().fg, crate::theme::MAUVE);
+
+    // As letras dos chips recolhidos têm a mesma cor do nome ativo.
+    let (x, y) = achar(buffer, "[c]");
+    assert_eq!(buffer.cell((x + 1, y)).unwrap().fg, crate::theme::MAUVE);
+}
+
+#[test]
+fn nivel_de_conexoes_lista_os_enderecos_salvos() {
+    let mut app = app_com_rapidas(&["db.local"]);
+    app.screen = Screen::Browse;
+    app.databases = vec![String::from("app")];
+    app.tables = vec![String::from("users")];
+    app.focus = Focus::Connections;
+    app.connections_state.select(Some(0));
+    let tela = screen(&mut app);
+    assert!(tela.contains("db.local:3306"), "{tela}");
+    assert!(tela.contains("conexões (1)"), "{tela}");
 }
 
 /// Tabela com 14 colunas, mais do que cabe num terminal estreito.

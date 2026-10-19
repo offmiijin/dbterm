@@ -52,6 +52,18 @@ impl Saved {
         }
     }
 
+    /// URL `mysql://...` para reabrir a conexão guardada, com a senha em
+    /// claro que veio do histórico.
+    pub fn url(&self) -> Result<String, String> {
+        let mut form = Connection::default();
+        *form.value_mut(Field::Host) = self.host.clone();
+        *form.value_mut(Field::Port) = self.port.to_string();
+        *form.value_mut(Field::User) = self.user.clone();
+        *form.value_mut(Field::Password) = self.password.clone().unwrap_or_default();
+        *form.value_mut(Field::Database) = self.database.clone();
+        form.url()
+    }
+
     /// Mesma conexão, independente de quando foi usada e da senha guardada.
     fn same(&self, other: &Self) -> bool {
         self.engine == other.engine
@@ -165,6 +177,11 @@ impl History {
         &self.connections[..self.connections.len().min(RECENTES)]
     }
 
+    /// Todas as conexões salvas, para a navegação da tela de trabalho.
+    pub fn all(&self) -> &[Saved] {
+        &self.connections
+    }
+
     /// Marca a conexão como a mais recente: sobe para o topo, sem duplicar.
     pub fn touch(&mut self, saved: Saved) {
         self.connections.retain(|entry| !entry.same(&saved));
@@ -271,6 +288,24 @@ mod tests {
             password: None,
             last_used,
         }
+    }
+
+    #[test]
+    fn url_da_conexao_salva_leva_a_senha_e_o_schema() {
+        let mut entry = saved("db.local", 1);
+        entry.port = 3307;
+        entry.password = Some(String::from("p:a@"));
+        assert_eq!(
+            entry.url().unwrap(),
+            "mysql://root:p%3Aa%40@db.local:3307/app"
+        );
+    }
+
+    #[test]
+    fn url_da_conexao_salva_dispensa_senha_e_schema() {
+        let mut entry = saved("db.local", 1);
+        entry.database.clear();
+        assert_eq!(entry.url().unwrap(), "mysql://root@db.local:3306");
     }
 
     #[test]

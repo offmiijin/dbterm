@@ -53,7 +53,13 @@ fn container_mysql_serve_dados_para_a_tui() {
         },
     };
 
-    let tabelas = tabelas(&db);
+    let bancos = bancos(&db);
+    assert!(
+        bancos.contains(&String::from("dbterm")),
+        "a lista de bancos deve trazer o schema do teste: {bancos:?}"
+    );
+
+    let tabelas = listar_tabelas(&db);
     for esperada in ["users", "products", "orders", "events"] {
         assert!(
             tabelas.contains(&esperada.to_string()),
@@ -161,6 +167,16 @@ fn container_mysql_serve_dados_para_a_tui() {
         outra => panic!("esperava Updated ao restaurar, veio {outra:?}"),
     }
 
+    // Trocar de banco pelo `USE` mantém a conexão e relê as tabelas.
+    db.request(Request::UseDatabase {
+        database: String::from("dbterm"),
+    });
+    match esperar(&db, Duration::from_secs(30)) {
+        Some(Response::Database(banco)) => assert_eq!(banco, "dbterm"),
+        outra => panic!("esperava Database depois do USE, veio {outra:?}"),
+    }
+    assert!(listar_tabelas(&db).contains(&String::from("users")));
+
     let derrubar = subiu.map_or_else(
         || String::from("podman compose"),
         |compose| compose.join(" "),
@@ -241,11 +257,20 @@ fn conectar(prazo: Duration) -> Option<Db> {
     }
 }
 
-fn tabelas(db: &Db) -> Vec<String> {
+fn listar_tabelas(db: &Db) -> Vec<String> {
     db.request(Request::Tables);
     match esperar(db, Duration::from_secs(30)) {
         Some(Response::Tables(tabelas)) => tabelas,
         outra => panic!("esperava a lista de tabelas, veio {outra:?}"),
+    }
+}
+
+/// Bancos do servidor, do mesmo jeito que a TUI pede ao conectar.
+fn bancos(db: &Db) -> Vec<String> {
+    db.request(Request::Databases);
+    match esperar(db, Duration::from_secs(30)) {
+        Some(Response::Databases(bancos)) => bancos,
+        outra => panic!("esperava a lista de bancos, veio {outra:?}"),
     }
 }
 

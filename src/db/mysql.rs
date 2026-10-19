@@ -14,6 +14,16 @@ pub(super) fn tables(conn: &mut Conn) -> mysql::Result<Vec<String>> {
     )
 }
 
+/// Bancos do servidor; o schema atual não precisa existir.
+pub(super) fn databases(conn: &mut Conn) -> mysql::Result<Vec<String>> {
+    conn.query("SELECT schema_name FROM information_schema.schemata ORDER BY schema_name")
+}
+
+/// Troca o banco padrão da conexão, sem reabrir a sessão.
+pub(super) fn use_database(conn: &mut Conn, database: &str) -> mysql::Result<()> {
+    conn.query_drop(format!("USE `{}`", quote(database)))
+}
+
 pub(super) fn rows(
     conn: &mut Conn,
     table: &str,

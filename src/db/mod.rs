@@ -74,6 +74,10 @@ pub enum Request {
     Connect { url: String },
     /// Lista as tabelas do schema atual.
     Tables,
+    /// Lista os bancos (schemas) do servidor.
+    Databases,
+    /// Passa a trabalhar no banco informado, na mesma conexão.
+    UseDatabase { database: String },
     /// Busca uma página de `limit` linhas de uma tabela, a partir de `offset`.
     Rows {
         table: String,
@@ -97,6 +101,10 @@ pub enum Response {
         database: String,
     },
     Tables(Vec<String>),
+    /// Os bancos do servidor, em ordem alfabética.
+    Databases(Vec<String>),
+    /// O banco atual mudou; a UI já pode pedir as tabelas dele.
+    Database(String),
     Rows {
         table: String,
         /// Quantas linhas já vinham carregadas antes desta página.

@@ -80,6 +80,9 @@ impl Connection {
 
     /// Monta a URL `mysql://...` a partir dos campos, recusando o que falta.
     ///
+    /// O schema é opcional: sem ele a conexão abre no servidor e a lista de
+    /// bancos escolhe onde trabalhar.
+    ///
     /// Usuário, senha e schema vão codificados (`%XX`): a biblioteca do MySQL
     /// decodifica esses três ao ler a URL, então `@` ou `/` na senha não
     /// quebram o endereço.
@@ -94,9 +97,6 @@ impl Connection {
         if user.is_empty() {
             return Err(String::from("informe o usuário"));
         }
-        if database.is_empty() {
-            return Err(String::from("informe o schema"));
-        }
         let port: u16 = port
             .parse()
             .map_err(|_| format!("porta inválida: {port}"))?;
@@ -110,8 +110,10 @@ impl Connection {
         url.push_str(host);
         url.push(':');
         url.push_str(&port.to_string());
-        url.push('/');
-        url.push_str(&encode(database));
+        if !database.is_empty() {
+            url.push('/');
+            url.push_str(&encode(database));
+        }
         Ok(url)
     }
 }
@@ -192,9 +194,14 @@ mod tests {
     }
 
     #[test]
+    fn schema_e_opcional() {
+        let connection = Connection::default();
+        assert_eq!(connection.url().unwrap(), "mysql://root@127.0.0.1:3306");
+    }
+
+    #[test]
     fn formulario_recusa_campos_faltando() {
         let mut connection = Connection::default();
-        assert!(connection.url().is_err(), "sem schema");
         *connection.value_mut(Field::Database) = String::from("app");
 
         *connection.value_mut(Field::Host) = String::new();

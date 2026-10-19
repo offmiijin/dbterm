@@ -38,10 +38,26 @@ pub enum Screen {
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
-    /// Lista de tabelas à esquerda.
+    /// Lista de conexões salvas.
+    Connections,
+    /// Lista de bancos do servidor conectado.
+    Databases,
+    /// Lista de tabelas do banco atual.
     Tables,
     /// Grade de dados à direita.
     Data,
+}
+
+impl Focus {
+    /// O nível anterior da cascata; `None` na conexão, a raiz.
+    pub fn above(self) -> Option<Focus> {
+        match self {
+            Focus::Connections => None,
+            Focus::Databases => Some(Focus::Connections),
+            Focus::Tables => Some(Focus::Databases),
+            Focus::Data => Some(Focus::Tables),
+        }
+    }
 }
 
 pub enum Status {
@@ -96,6 +112,8 @@ pub struct App {
     pub connect_error: Option<String>,
     pub server: String,
     pub database: String,
+    /// Bancos do servidor conectado.
+    pub databases: Vec<String>,
     pub tables: Vec<String>,
     /// Tabela cujos dados estão em `data`.
     pub current: Option<String>,
@@ -107,6 +125,10 @@ pub struct App {
     pub quit_return: Mode,
     pub edit: Option<Edit>,
     pub should_quit: bool,
+    /// Seleção nas listas de conexões, bancos e tabelas. Só a do nível ativo
+    /// aparece, mas cada uma guarda onde o usuário parou.
+    pub connections_state: ListState,
+    pub databases_state: ListState,
     pub list_state: ListState,
     pub table_state: TableState,
     /// Índice da coluna de dados selecionada na grade. O widget intercala
@@ -150,15 +172,18 @@ impl App {
             connect_error: None,
             server: String::new(),
             database: String::new(),
+            databases: Vec::new(),
             tables: Vec::new(),
             current: None,
             data: None,
-            focus: Focus::Tables,
+            focus: Focus::Databases,
             status: Status::Connecting,
             mode: Mode::Rows,
             quit_return: Mode::Rows,
             edit: None,
             should_quit: false,
+            connections_state: ListState::default(),
+            databases_state: ListState::default(),
             list_state: ListState::default(),
             table_state: TableState::default(),
             column: None,
@@ -169,12 +194,11 @@ impl App {
             db,
         };
         if let Some(url) = url {
-            // Os pedidos vão na mesma fila: `Tables` só é lido depois do
-            // `Connect` pelo worker.
+            // Os bancos são pedidos quando o `Connected` chega; o worker atende
+            // na ordem da fila.
             app.db.request(Request::Connect {
                 url: url.to_owned(),
             });
-            app.db.request(Request::Tables);
         }
         app
     }
@@ -204,20 +228,44 @@ impl App {
             Response::Connected { server, database } => {
                 self.server = server;
                 self.database = database;
-                if self.connecting {
+                if self.screen == Screen::Connect {
                     // Só sai do formulário quando a conexão foi aceita, e a
                     // conexão usada sobe para o topo das rápidas.
                     self.connecting = false;
                     self.history.touch(Saved::from_form(&self.connection));
                     self.screen = Screen::Browse;
-                    self.status = Status::Connecting;
-                    self.db.request(Request::Tables);
+                    self.connections_state.select(Some(0));
                 }
+                // Conexão escolhida: a cascata desce para os bancos dela.
+                self.focus = Focus::Databases;
+                self.status = Status::Loading(String::from("bancos"));
+                self.db.request(Request::Databases);
+            }
+            Response::Databases(databases) => {
+                self.databases = databases;
+                self.status = Status::Ready;
+                // Abre o banco que já estava em uso ou, sem ele, o primeiro.
+                let escolhido = self
+                    .databases
+                    .iter()
+                    .position(|database| *database == self.database)
+                    .or_else(|| (!self.databases.is_empty()).then_some(0));
+                self.databases_state.select(escolhido);
+                if let Some(database) = escolhido.and_then(|i| self.databases.get(i)).cloned() {
+                    self.use_database(database);
+                }
+            }
+            Response::Database(database) => {
+                self.database = database;
+                self.status = Status::Loading(String::from("tabelas"));
+                self.db.request(Request::Tables);
             }
             Response::Tables(tables) => {
                 self.tables = tables;
                 self.status = Status::Ready;
-                if !self.tables.is_empty() {
+                if self.tables.is_empty() {
+                    self.list_state = ListState::default();
+                } else {
                     self.list_state.select(Some(0));
                     // Abrir a primeira tabela deixa a tela útil de imediato.
                     self.load(self.tables[0].clone());
@@ -317,6 +365,76 @@ impl App {
             offset: data.rows.len(),
             limit: ROW_LIMIT,
         });
+    }
+
+    /// Abre a conexão selecionada na lista de conexões salvas.
+    pub(super) fn open_selected_connection(&mut self) {
+        let Some(saved) = self
+            .connections_state
+            .selected()
+            .and_then(|index| self.history.all().get(index))
+            .cloned()
+        else {
+            return;
+        };
+        let url = match saved.url() {
+            Ok(url) => url,
+            Err(message) => {
+                self.status = Status::Failed(message);
+                return;
+            }
+        };
+        self.reset_levels();
+        self.status = Status::Connecting;
+        self.db.request(Request::Connect { url });
+    }
+
+    /// Enter na lista de bancos: troca o schema atual; no banco que já está
+    /// aberto, desce para as tabelas.
+    pub(super) fn use_selected_database(&mut self) {
+        let Some(database) = self
+            .databases_state
+            .selected()
+            .and_then(|index| self.databases.get(index))
+            .cloned()
+        else {
+            return;
+        };
+        if database == self.database && self.data.is_some() {
+            self.focus = Focus::Tables;
+            return;
+        }
+        self.use_database(database);
+    }
+
+    /// Troca o banco atual pelo `USE`, na mesma conexão.
+    fn use_database(&mut self, database: String) {
+        self.clear_levels();
+        self.status = Status::Loading(database.clone());
+        self.db.request(Request::UseDatabase { database });
+    }
+
+    /// Esquece tabelas, grade e seleções de uma conexão ou banco que saiu.
+    fn reset_levels(&mut self) {
+        self.databases.clear();
+        self.databases_state = ListState::default();
+        self.clear_levels();
+    }
+
+    /// Esquece tabelas, grade e seleções, preservando a lista de bancos.
+    fn clear_levels(&mut self) {
+        self.tables.clear();
+        self.list_state = ListState::default();
+        self.current = None;
+        self.data = None;
+        self.table_state = TableState::default();
+        self.column = None;
+        self.hscroll = 0;
+        self.larguras.clear();
+        self.end_reached = false;
+        self.loading_more = false;
+        self.mode = Mode::Rows;
+        self.edit = None;
     }
 
     /// Abre o formulário vazio: o `n` das conexões rápidas.

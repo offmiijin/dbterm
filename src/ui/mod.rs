@@ -22,9 +22,10 @@ use ratatui::widgets::{Block, BorderType, List, ListItem, Paragraph};
 
 use crate::app::{App, Focus, Mode, Screen, Status};
 use crate::db::TableData;
+use crate::history::Saved;
 use crate::theme;
 
-const KEYS: &str = "q sair · h/l colunas · esc voltar/sair · j/k mover · enter abrir/colunas · r recarregar · g/G topo/fim";
+const KEYS: &str = "q sair · c/b/t nível · esc subir · j/k mover · enter abrir · h/l colunas · r recarregar · g/G topo/fim";
 /// Espaço que a mensagem de estado nunca perde para a linha de atalhos.
 const MIN_STATUS: u16 = 32;
 
@@ -59,11 +60,12 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
     }
 }
 
-/// Tela de trabalho: lista de tabelas, grade e pop-ups.
+/// Tela de trabalho: chips dos níveis, lista do nível ativo, grade e pop-ups.
 fn draw_browse(frame: &mut Frame, app: &mut App) {
     let App {
         server,
         database,
+        databases,
         tables,
         current,
         data,
@@ -71,12 +73,15 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         status,
         mode,
         edit,
+        connections_state,
+        databases_state,
         list_state,
         table_state,
         column,
         hscroll,
         larguras,
         end_reached,
+        history,
         ..
     } = app;
 
@@ -91,18 +96,40 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
 
     draw_header(frame, header, server, database, current.as_deref());
 
-    let titles: Vec<ListItem> = tables
-        .iter()
-        .map(|table| ListItem::new(table.as_str()))
-        .collect();
-    let list = List::new(titles)
-        .block(panel(
-            format!("tabelas ({})", tables.len()),
-            *focus == Focus::Tables,
-        ))
+    // Nos registros, o nível de contexto continua sendo o das tabelas.
+    let ativo = match *focus {
+        Focus::Data => Focus::Tables,
+        outro => outro,
+    };
+    let [chips, lista] = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(side);
+    let contagens = [history.all().len(), databases.len(), tables.len()];
+    frame.render_widget(Paragraph::new(chips_line(ativo, contagens)), chips);
+
+    let (itens, state) = match ativo {
+        Focus::Connections => (
+            history.all().iter().map(conexao_item).collect::<Vec<_>>(),
+            connections_state,
+        ),
+        Focus::Databases => (
+            databases
+                .iter()
+                .map(|database| ListItem::new(database.as_str()))
+                .collect::<Vec<_>>(),
+            databases_state,
+        ),
+        _ => (
+            tables
+                .iter()
+                .map(|table| ListItem::new(table.as_str()))
+                .collect::<Vec<_>>(),
+            list_state,
+        ),
+    };
+    let list = List::new(itens)
+        .block(panel(String::new(), *focus == ativo))
         .highlight_symbol("❯ ")
         .highlight_style(theme::selected());
-    frame.render_stateful_widget(list, side, list_state);
+    frame.render_stateful_widget(list, lista, state);
 
     grid::draw_data(
         frame,
@@ -134,6 +161,11 @@ fn draw_header(frame: &mut Frame, area: Rect, server: &str, database: &str, tabl
         "conectando…"
     } else {
         server
+    };
+    let database = if database.is_empty() {
+        "(nenhum)"
+    } else {
+        database
     };
     let mut line = Line::from(vec![
         Span::styled(" dbterm ", theme::accent()),
@@ -191,10 +223,56 @@ fn draw_footer(
     );
 }
 
+/// Linha de chips dos três níveis, sempre na ordem conexões → bancos →
+/// tabelas. O nível ativo mostra nome e contagem; os outros, só a letra do
+/// atalho em destaque.
+fn chips_line(ativo: Focus, contagens: [usize; 3]) -> Line<'static> {
+    const NIVEIS: [(Focus, &str, &str); 3] = [
+        (Focus::Connections, "c", "conexões"),
+        (Focus::Databases, "b", "bancos"),
+        (Focus::Tables, "t", "tabelas"),
+    ];
+    let mut spans = Vec::new();
+    for (indice, (nivel, letra, nome)) in NIVEIS.iter().enumerate() {
+        if indice > 0 {
+            spans.push(Span::styled(" ", theme::muted()));
+        }
+        if *nivel == ativo {
+            // Mesma cor da marca no topo: o nível ativo inteiro fica roxo.
+            spans.push(Span::styled(
+                format!("{nome} ({})", contagens[indice]),
+                theme::accent(),
+            ));
+        } else {
+            spans.push(Span::styled("[", theme::muted()));
+            spans.push(Span::styled(*letra, theme::accent()));
+            spans.push(Span::styled("]", theme::muted()));
+        }
+    }
+    Line::from(spans)
+}
+
+/// Uma conexão salva como item da lista: endereço e schema, sem senha.
+fn conexao_item(saved: &Saved) -> ListItem<'static> {
+    let mut spans = vec![Span::styled(
+        format!("{}:{}", saved.host, saved.port),
+        theme::text(),
+    )];
+    if !saved.database.is_empty() {
+        spans.push(Span::styled(" ", theme::muted()));
+        spans.push(Span::styled(saved.database.clone(), theme::muted()));
+    }
+    ListItem::new(Line::from(spans))
+}
+
 /// Moldura de painel, usada pela grade e pela lista de tabelas.
 pub(super) fn panel(title: String, focused: bool) -> Block<'static> {
-    Block::bordered()
+    let block = Block::bordered()
         .border_type(BorderType::Rounded)
-        .border_style(theme::border(focused))
-        .title(format!(" {title} "))
+        .border_style(theme::border(focused));
+    if title.is_empty() {
+        block
+    } else {
+        block.title(format!(" {title} "))
+    }
 }

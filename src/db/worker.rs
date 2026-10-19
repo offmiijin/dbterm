@@ -6,7 +6,7 @@ use std::thread;
 
 use mysql::{Conn, Opts};
 
-use super::mysql::{rows, tables, update};
+use super::mysql::{databases, rows, tables, update, use_database};
 use super::{Request, Response};
 
 /// Canal da UI para a thread de trabalho e volta.
@@ -72,6 +72,20 @@ fn worker(tx: &Sender<Response>, rx: &Receiver<Request>) {
                 },
                 None => sem_conexao(),
             },
+            Request::Databases => match conn.as_mut() {
+                Some(conn) => match databases(conn) {
+                    Ok(databases) => Response::Databases(databases),
+                    Err(err) => Response::Failed(err.to_string()),
+                },
+                None => sem_conexao(),
+            },
+            Request::UseDatabase { database } => match conn.as_mut() {
+                Some(conn) => match use_database(conn, &database) {
+                    Ok(()) => Response::Database(database),
+                    Err(err) => Response::Failed(err.to_string()),
+                },
+                None => sem_conexao(),
+            },
             Request::Rows {
                 table,
                 offset,
@@ -110,7 +124,7 @@ fn worker(tx: &Sender<Response>, rx: &Receiver<Request>) {
 /// Abre a conexão e monta a resposta de boas-vindas, ou explica a falha.
 fn open(url: &str) -> Result<(Conn, Response), String> {
     let opts = Opts::from_url(url).map_err(|err| format!("URL inválida: {err}"))?;
-    let database = opts.get_db_name().unwrap_or("(nenhum schema)").to_owned();
+    let database = opts.get_db_name().unwrap_or_default().to_owned();
     let conn = Conn::new(opts).map_err(|err| format!("falha ao conectar: {err}"))?;
     let (major, minor, patch) = conn.server_version();
     let response = Response::Connected {
