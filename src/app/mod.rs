@@ -112,6 +112,10 @@ pub struct App {
     /// Índice da coluna de dados selecionada na grade. O widget intercala
     /// divisórias entre as colunas; esse detalhe fica em `ui`.
     pub column: Option<usize>,
+    /// Primeira coluna que a grade tenta mostrar: a rolagem horizontal das
+    /// tabelas com mais colunas do que cabe na tela. Quem ajusta à largura e à
+    /// coluna selecionada é `ui`.
+    pub hscroll: usize,
     db: Db,
 }
 
@@ -151,6 +155,7 @@ impl App {
             list_state: ListState::default(),
             table_state: TableState::default(),
             column: None,
+            hscroll: 0,
             db,
         };
         if let Some(url) = url {
@@ -226,6 +231,7 @@ impl App {
                     self.table_state
                         .select(if linhas == 0 { None } else { Some(0) });
                     self.column = None;
+                    self.hscroll = 0;
                     self.mode = Mode::Rows;
                     self.edit = None;
                 }

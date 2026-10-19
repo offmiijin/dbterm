@@ -138,9 +138,9 @@ fn teclas_navegam_selecionam_e_saem() {
     app.on_key(KeyEvent::from(KeyCode::Char('G')));
     assert_eq!(app.list_state.selected(), Some(1));
 
-    // `h`/`l` trocam de painel; `tab` não mexe mais no foco.
+    // `h`/`l` não trocam mais de painel: nas tabelas eles não fazem nada.
     app.on_key(KeyEvent::from(KeyCode::Char('l')));
-    assert!(app.focus == Focus::Data);
+    assert!(app.focus == Focus::Tables);
     app.on_key(KeyEvent::from(KeyCode::Char('h')));
     assert!(app.focus == Focus::Tables);
 
@@ -198,18 +198,45 @@ fn q_em_colunas_confirma_e_cancelar_volta_ao_modo_coluna() {
 }
 
 #[test]
-fn h_l_trocam_de_painel_e_tab_nao_faz_nada() {
+fn enter_troca_de_painel_e_h_l_nao() {
     let mut app = app_com_grade();
+    app.focus = Focus::Tables;
+
+    // `h`/`l` não trocam mais de painel; quem leva aos dados é o `enter`.
+    app.on_key(KeyEvent::from(KeyCode::Char('l')));
+    assert!(app.focus == Focus::Tables);
     app.on_key(KeyEvent::from(KeyCode::Char('h')));
     assert!(app.focus == Focus::Tables);
-    app.on_key(KeyEvent::from(KeyCode::Char('l')));
+    app.on_key(KeyEvent::from(KeyCode::Enter));
     assert!(app.focus == Focus::Data);
+
+    // De volta às tabelas, só com `esc`.
+    app.on_key(KeyEvent::from(KeyCode::Esc));
+    assert!(app.focus == Focus::Tables);
 
     // Tab foi removido da troca de foco entre os painéis.
     app.on_key(KeyEvent::from(KeyCode::Tab));
-    assert!(app.focus == Focus::Data);
+    assert!(app.focus == Focus::Tables);
     app.on_key(KeyEvent::from(KeyCode::BackTab));
-    assert!(app.focus == Focus::Data);
+    assert!(app.focus == Focus::Tables);
+}
+
+#[test]
+fn h_l_nos_registros_rolam_as_colunas() {
+    let mut app = app_com_grade();
+    app.focus = Focus::Data;
+    // `h`/`l` andam na horizontal pelas colunas, do mesmo jeito que as setas.
+    app.on_key(KeyEvent::from(KeyCode::Char('l')));
+    assert_eq!(app.hscroll, 1);
+    app.on_key(KeyEvent::from(KeyCode::Char('l')));
+    assert_eq!(app.hscroll, 1, "clampa na última coluna");
+    app.on_key(KeyEvent::from(KeyCode::Char('h')));
+    assert_eq!(app.hscroll, 0);
+    app.on_key(KeyEvent::from(KeyCode::Left));
+    assert_eq!(app.hscroll, 0, "clampa na primeira coluna");
+    // Rolar não mexe na seleção nem no modo.
+    assert_eq!(app.column, None);
+    assert_eq!(app.mode, Mode::Rows);
 }
 
 #[test]
@@ -575,4 +602,39 @@ fn enter_abre_a_rapida_com_a_senha_salva() {
     app.quick = Some(0);
     app.on_key(KeyEvent::from(KeyCode::Enter));
     assert_eq!(app.connection.value(Field::Password), "segredo");
+}
+
+#[test]
+fn setas_horizontais_rolam_as_colunas_da_grade() {
+    let mut app = app_com_grade();
+    app.focus = Focus::Data;
+    app.on_key(KeyEvent::from(KeyCode::Right));
+    assert_eq!(app.hscroll, 1);
+    app.on_key(KeyEvent::from(KeyCode::Right));
+    assert_eq!(app.hscroll, 1, "clampa na última coluna");
+    app.on_key(KeyEvent::from(KeyCode::Left));
+    assert_eq!(app.hscroll, 0);
+    app.on_key(KeyEvent::from(KeyCode::Left));
+    assert_eq!(app.hscroll, 0, "clampa na primeira coluna");
+
+    // Na lista de tabelas as setas horizontais não rolam a grade.
+    app.focus = Focus::Tables;
+    app.on_key(KeyEvent::from(KeyCode::Right));
+    assert_eq!(app.hscroll, 0);
+}
+
+#[test]
+fn tabela_nova_volta_a_rolagem_horizontal_ao_inicio() {
+    let mut app = app_com_grade();
+    app.hscroll = 1;
+    app.on_response(Response::Rows {
+        table: String::from("outra"),
+        data: TableData {
+            columns: vec![String::from("id"), String::from("name")],
+            kinds: vec![ColumnKind::Number, ColumnKind::Text],
+            rows: vec![vec![String::from("1"), String::from("ana")]],
+            primary_key: vec![0],
+        },
+    });
+    assert_eq!(app.hscroll, 0);
 }

@@ -19,7 +19,7 @@ use crate::app::{App, Focus, Mode, Screen, Status};
 use crate::db::ROW_LIMIT;
 use crate::theme;
 
-const KEYS: &str = "q sair · h/l foco · esc voltar/sair · j/k mover · enter abrir/colunas · r recarregar · g/G topo/fim";
+const KEYS: &str = "q sair · h/l colunas · esc voltar/sair · j/k mover · enter abrir/colunas · r recarregar · g/G topo/fim";
 /// Espaço que a mensagem de estado nunca perde para a linha de atalhos.
 const MIN_STATUS: u16 = 32;
 
@@ -69,6 +69,7 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         list_state,
         table_state,
         column,
+        hscroll,
         ..
     } = app;
 
@@ -102,7 +103,10 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         data.as_ref(),
         *focus == Focus::Data,
         table_state,
-        *column,
+        grid::Posicao {
+            coluna: *column,
+            rolagem: *hscroll,
+        },
         mode,
     );
 

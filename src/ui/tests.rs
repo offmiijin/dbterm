@@ -533,3 +533,53 @@ fn tela_inicial_vazia_pede_nova_conexao() {
     assert!(screen.contains("nenhuma conexão salva"), "{screen}");
     assert!(screen.contains("n nova conexão"), "{screen}");
 }
+
+/// Tabela com 14 colunas, mais do que cabe num terminal estreito.
+fn app_com_muitas_colunas() -> App {
+    let mut app = app_largo();
+    let data = app.data.as_mut().expect("grade");
+    for index in 0..6 {
+        data.columns.push(format!("coluna_{index}"));
+        data.kinds.push(ColumnKind::Text);
+    }
+    for row in data.rows.iter_mut() {
+        for index in 0..6 {
+            row.push(format!("valor {index}"));
+        }
+    }
+    app
+}
+
+#[test]
+fn muitas_colunas_mostram_o_nome_do_cabecalho_inteiro() {
+    // 14 colunas não cabem em 100 colunas de terminal: sem a rolagem
+    // horizontal, o `Table` espreme o cabeçalho e sobra só a inicial.
+    let screen = screen_at(&mut app_com_muitas_colunas(), 100);
+    for nome in ["id", "name", "email", "active", "created_at"] {
+        assert!(screen.contains(nome), "faltou {nome}: {screen}");
+    }
+    // As colunas que não couberam ficam para a rolagem, e o título avisa.
+    assert!(!screen.contains("coluna_0"), "{screen}");
+    assert!(screen.contains("colunas 1-5/14"), "{screen}");
+}
+
+#[test]
+fn rolagem_horizontal_alcanca_as_ultimas_colunas() {
+    let mut app = app_com_muitas_colunas();
+    app.hscroll = 13;
+    let screen = screen_at(&mut app, 100);
+    assert!(screen.contains("coluna_5"), "{screen}");
+    assert!(screen.contains("colunas 14-14/14"), "{screen}");
+    assert!(!screen.contains("created_at"), "{screen}");
+}
+
+#[test]
+fn coluna_selecionada_fora_da_tela_puxa_a_rolagem() {
+    let mut app = app_com_muitas_colunas();
+    app.focus = crate::app::Focus::Data;
+    app.mode = crate::app::Mode::Columns;
+    app.column = Some(13);
+    let screen = screen_at(&mut app, 100);
+    assert!(screen.contains("coluna_5"), "{screen}");
+    assert!(screen.contains("col: coluna_5"), "{screen}");
+}
