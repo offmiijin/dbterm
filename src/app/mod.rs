@@ -17,11 +17,21 @@ use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event, KeyEventKind};
 use ratatui::widgets::{ListState, TableState};
 
+use crate::config::{Connection, Field};
 use crate::db::{Db, Request, Response, TableData};
 use crate::ui;
 
 /// Espera máxima por um evento antes de redesenhar (e drenar o banco).
 const TICK: Duration = Duration::from_millis(50);
+
+/// Em qual tela o app está.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum Screen {
+    /// Formulário de conexão, antes de abrir o primeiro banco.
+    Connect,
+    /// Tabelas e dados da conexão aberta.
+    Browse,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Focus {
@@ -68,6 +78,15 @@ pub struct Edit {
 }
 
 pub struct App {
+    pub screen: Screen,
+    /// Formulário da tela de conexão.
+    pub connection: Connection,
+    /// Campo em edição na tela de conexão.
+    pub field: Field,
+    /// Verdadeiro enquanto uma conexão pedida na tela está sendo aberta.
+    pub connecting: bool,
+    /// Falha da última tentativa de conexão pela tela.
+    pub connect_error: Option<String>,
     pub server: String,
     pub database: String,
     pub tables: Vec<String>,
@@ -90,10 +109,19 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(url: &str) -> Self {
-        let db = Db::connect(url);
-        db.request(Request::Tables);
-        Self {
+    /// Abre o app; sem URL, começa na tela de conexão.
+    pub fn new(url: Option<&str>) -> Self {
+        let db = Db::spawn();
+        let app = Self {
+            screen: if url.is_some() {
+                Screen::Browse
+            } else {
+                Screen::Connect
+            },
+            connection: Connection::default(),
+            field: Field::Host,
+            connecting: false,
+            connect_error: None,
             server: String::new(),
             database: String::new(),
             tables: Vec::new(),
@@ -109,7 +137,16 @@ impl App {
             table_state: TableState::default(),
             column: None,
             db,
+        };
+        if let Some(url) = url {
+            // Os pedidos vão na mesma fila: `Tables` só é lido depois do
+            // `Connect` pelo worker.
+            app.db.request(Request::Connect {
+                url: url.to_owned(),
+            });
+            app.db.request(Request::Tables);
         }
+        app
     }
 
     pub fn run(mut self, terminal: &mut DefaultTerminal) -> io::Result<()> {
@@ -137,6 +174,13 @@ impl App {
             Response::Connected { server, database } => {
                 self.server = server;
                 self.database = database;
+                if self.screen == Screen::Connect {
+                    // Só sai do formulário quando a conexão foi aceita.
+                    self.screen = Screen::Browse;
+                    self.connecting = false;
+                    self.status = Status::Connecting;
+                    self.db.request(Request::Tables);
+                }
             }
             Response::Tables(tables) => {
                 self.tables = tables;
@@ -171,7 +215,27 @@ impl App {
                 self.status = Status::Ready;
             }
             Response::Updated { table } => self.load(table),
-            Response::Failed(message) => self.status = Status::Failed(message),
+            Response::Failed(message) => {
+                if self.screen == Screen::Connect {
+                    // Falha ao conectar volta para o formulário com o motivo.
+                    self.connecting = false;
+                    self.connect_error = Some(message);
+                } else {
+                    self.status = Status::Failed(message);
+                }
+            }
+        }
+    }
+
+    /// Monta a URL do formulário e pede a conexão; erros ficam na tela.
+    pub(super) fn submit_connection(&mut self) {
+        match self.connection.url() {
+            Ok(url) => {
+                self.connect_error = None;
+                self.connecting = true;
+                self.db.request(Request::Connect { url });
+            }
+            Err(message) => self.connect_error = Some(message),
         }
     }
 

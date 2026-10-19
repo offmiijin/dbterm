@@ -10,7 +10,7 @@ fn main() -> io::Result<()> {
         Ok(url) => url,
         Err(message) => {
             eprintln!("dbterm: {message}");
-            eprintln!("uso: dbterm <mysql://usuario:senha@host:porta/schema>");
+            eprintln!("uso: dbterm [mysql://usuario:senha@host:porta/schema]");
             std::process::exit(2);
         }
     };
@@ -24,7 +24,7 @@ fn main() -> io::Result<()> {
             ));
         }
     };
-    let result = App::new(&url).run(&mut terminal);
+    let result = App::new(url.as_deref()).run(&mut terminal);
     ratatui::restore();
     result
 }

@@ -2,13 +2,18 @@
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use super::{App, Edit, Focus, Mode, Status};
+use super::{App, Edit, Focus, Mode, Screen, Status};
+use crate::config::Field;
 
 /// Quantas linhas PgUp/PgDn andam.
 pub(super) const PAGE: isize = 20;
 
 impl App {
     pub(super) fn on_key(&mut self, key: KeyEvent) {
+        if self.screen == Screen::Connect {
+            self.on_key_connect(key);
+            return;
+        }
         match self.mode {
             Mode::Rows => self.on_key_rows(key),
             Mode::Columns => self.on_key_columns(key),
@@ -17,6 +22,48 @@ impl App {
             Mode::ConfirmAgain => self.on_key_confirm_again(key),
             Mode::ConfirmQuit => self.on_key_confirm_quit(key),
         }
+    }
+
+    /// Tela de conexão: nenhuma tecla digita quando o campo é livre, então
+    /// `j`/`k`/`q` são texto; a navegação é por `tab` e setas.
+    fn on_key_connect(&mut self, key: KeyEvent) {
+        if self.connecting {
+            // Enquanto a conexão abre, só `esc` encerra o app.
+            if key.code == KeyCode::Esc {
+                self.should_quit = true;
+            }
+            return;
+        }
+        match key.code {
+            KeyCode::Esc => self.should_quit = true,
+            KeyCode::Enter => self.submit_connection(),
+            KeyCode::Tab | KeyCode::Down => self.move_field(1),
+            KeyCode::BackTab | KeyCode::Up => self.move_field(-1),
+            KeyCode::Backspace => {
+                self.connection.value_mut(self.field).pop();
+                self.connect_error = None;
+            }
+            KeyCode::Char(c)
+                if !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                self.connection.value_mut(self.field).push(c);
+                self.connect_error = None;
+            }
+            _ => {}
+        }
+    }
+
+    /// Anda um campo, dando a volta nas pontas.
+    fn move_field(&mut self, delta: isize) {
+        let fields = Field::ALL;
+        let atual = fields
+            .iter()
+            .position(|field| *field == self.field)
+            .unwrap_or(0);
+        let proximo = (atual as isize + delta).rem_euclid(fields.len() as isize) as usize;
+        self.field = fields[proximo];
     }
 
     fn on_key_rows(&mut self, key: KeyEvent) {

@@ -2,6 +2,7 @@
 //!
 //! O layout fica aqui; a grade de dados em `grid` e os pop-ups em `popup`.
 
+mod connect;
 mod grid;
 mod popup;
 #[cfg(test)]
@@ -13,7 +14,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, List, ListItem, Paragraph};
 
-use crate::app::{App, Focus, Mode, Status};
+use crate::app::{App, Focus, Mode, Screen, Status};
 use crate::db::ROW_LIMIT;
 use crate::theme;
 
@@ -22,6 +23,15 @@ const KEYS: &str = "q sair · h/l foco · esc voltar/sair · j/k mover · enter 
 const MIN_STATUS: u16 = 32;
 
 pub fn draw(frame: &mut Frame, app: &mut App) {
+    frame.render_widget(Block::new().style(theme::base()), frame.area());
+    match app.screen {
+        Screen::Connect => connect::draw(frame, frame.area(), app),
+        Screen::Browse => draw_browse(frame, app),
+    }
+}
+
+/// Tela de trabalho: lista de tabelas, grade e pop-ups.
+fn draw_browse(frame: &mut Frame, app: &mut App) {
     let App {
         server,
         database,
@@ -37,8 +47,6 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         column,
         ..
     } = app;
-
-    frame.render_widget(Block::new().style(theme::base()), frame.area());
 
     let [header, body, footer] = Layout::vertical([
         Constraint::Length(1),

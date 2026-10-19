@@ -2,10 +2,11 @@ use ratatui::crossterm::event::{KeyCode, KeyEvent};
 
 use super::input::{PAGE, step};
 use super::*;
+use crate::config::Field;
 use crate::db::ColumnKind;
 
 fn app() -> App {
-    App::new("mysql://user@localhost/app")
+    App::new(Some("mysql://user@localhost/app"))
 }
 
 fn app_com_grade() -> App {
@@ -351,4 +352,111 @@ fn abrir_outra_tabela_reseta_a_selecao_e_o_modo() {
     assert_eq!(app.table_state.selected(), Some(0));
     assert_eq!(app.column, None);
     assert_eq!(app.mode, Mode::Rows);
+}
+
+#[test]
+fn sem_url_o_app_abre_na_tela_de_conexao() {
+    let app = App::new(None);
+    assert!(app.screen == Screen::Connect);
+    assert_eq!(app.field, Field::Host);
+    assert!(!app.connecting);
+    assert!(app.connect_error.is_none());
+}
+
+#[test]
+fn com_url_o_app_vai_direto_para_a_tela_de_trabalho() {
+    assert!(app().screen == Screen::Browse);
+}
+
+#[test]
+fn tab_anda_entre_os_campos_dando_a_volta() {
+    let mut app = App::new(None);
+    app.on_key(KeyEvent::from(KeyCode::Tab));
+    assert_eq!(app.field, Field::Port);
+    app.on_key(KeyEvent::from(KeyCode::Down));
+    assert_eq!(app.field, Field::User);
+    app.on_key(KeyEvent::from(KeyCode::BackTab));
+    assert_eq!(app.field, Field::Port);
+
+    // Voltar do primeiro campo cai no último.
+    app.field = Field::Host;
+    app.on_key(KeyEvent::from(KeyCode::Up));
+    assert_eq!(app.field, Field::Database);
+    app.on_key(KeyEvent::from(KeyCode::Tab));
+    assert_eq!(app.field, Field::Host);
+}
+
+#[test]
+fn digitar_edita_o_campo_com_foco_sem_sair() {
+    let mut app = App::new(None);
+    app.field = Field::Database;
+    // `q` e `j` são texto na tela de conexão.
+    app.on_key(KeyEvent::from(KeyCode::Char('q')));
+    app.on_key(KeyEvent::from(KeyCode::Char('j')));
+    assert_eq!(app.connection.value(Field::Database), "qj");
+    assert!(!app.should_quit);
+
+    app.on_key(KeyEvent::from(KeyCode::Backspace));
+    assert_eq!(app.connection.value(Field::Database), "q");
+}
+
+#[test]
+fn esc_na_tela_de_conexao_sai_na_hora() {
+    let mut app = App::new(None);
+    app.on_key(KeyEvent::from(KeyCode::Esc));
+    assert!(app.should_quit);
+}
+
+#[test]
+fn formulario_incompleto_mostra_o_erro_e_nao_conecta() {
+    let mut app = App::new(None);
+    app.on_key(KeyEvent::from(KeyCode::Enter));
+    assert_eq!(app.connect_error.as_deref(), Some("informe o schema"));
+    assert!(app.screen == Screen::Connect);
+    assert!(!app.connecting);
+}
+
+#[test]
+fn formulario_valido_pede_a_conexao() {
+    let mut app = App::new(None);
+    app.field = Field::Database;
+    app.on_key(KeyEvent::from(KeyCode::Char('a')));
+    app.on_key(KeyEvent::from(KeyCode::Char('p')));
+    app.on_key(KeyEvent::from(KeyCode::Char('p')));
+    app.on_key(KeyEvent::from(KeyCode::Enter));
+    assert!(app.connect_error.is_none());
+    assert!(app.connecting);
+}
+
+#[test]
+fn enquanto_conecta_o_teclado_nao_edita() {
+    let mut app = App::new(None);
+    app.connecting = true;
+    app.field = Field::Host;
+    app.on_key(KeyEvent::from(KeyCode::Char('x')));
+    assert_eq!(app.connection.value(Field::Host), "127.0.0.1");
+}
+
+#[test]
+fn conexao_aceita_troca_para_a_tela_de_trabalho() {
+    let mut app = App::new(None);
+    app.connecting = true;
+    app.on_response(Response::Connected {
+        server: String::from("MySQL 8.0.35"),
+        database: String::from("app"),
+    });
+    assert!(app.screen == Screen::Browse);
+    assert!(!app.connecting);
+    assert_eq!(app.server, "MySQL 8.0.35");
+    assert_eq!(app.database, "app");
+}
+
+#[test]
+fn conexao_recusada_volta_ao_formulario_com_o_motivo() {
+    let mut app = App::new(None);
+    app.connecting = true;
+    app.on_response(Response::Failed(String::from("falha ao conectar")));
+    assert!(app.screen == Screen::Connect);
+    assert!(!app.connecting);
+    assert_eq!(app.connect_error.as_deref(), Some("falha ao conectar"));
 }
