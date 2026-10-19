@@ -4,9 +4,49 @@ use super::input::{PAGE, step};
 use super::*;
 use crate::config::Field;
 use crate::db::ColumnKind;
+use crate::history::{History, Saved};
 
 fn app() -> App {
-    App::new(Some("mysql://user@localhost/app"))
+    let mut app = App::new(Some("mysql://user@localhost/app"));
+    app.history = History::in_memory();
+    app
+}
+
+/// App na tela inicial, sem histórico em disco.
+fn app_quick() -> App {
+    let mut app = App::new(None);
+    app.history = History::in_memory();
+    app.quick = None;
+    app
+}
+
+/// App com conexões rápidas salvas, na ordem dada (a primeira é a mais recente).
+fn app_com_rapidas(hosts: &[&str]) -> App {
+    let mut app = app_quick();
+    let total = hosts.len();
+    let entries = hosts
+        .iter()
+        .enumerate()
+        .map(|(i, host)| Saved {
+            engine: String::from(Saved::MYSQL),
+            host: String::from(*host),
+            port: 3306,
+            user: String::from("root"),
+            database: String::from("app"),
+            password: None,
+            last_used: (total - i) as u64,
+        })
+        .collect();
+    app.history = History::with(entries);
+    app.quick = Some(0);
+    app
+}
+
+/// App com o formulário aberto via `n`.
+fn app_form() -> App {
+    let mut app = app_quick();
+    app.on_key(KeyEvent::from(KeyCode::Char('n')));
+    app
 }
 
 fn app_com_grade() -> App {
@@ -355,12 +395,10 @@ fn abrir_outra_tabela_reseta_a_selecao_e_o_modo() {
 }
 
 #[test]
-fn sem_url_o_app_abre_na_tela_de_conexao() {
-    let app = App::new(None);
-    assert!(app.screen == Screen::Connect);
-    assert_eq!(app.field, Field::Host);
-    assert!(!app.connecting);
-    assert!(app.connect_error.is_none());
+fn sem_url_o_app_abre_nas_conexoes_rapidas() {
+    let app = app_quick();
+    assert!(app.screen == Screen::Quick);
+    assert!(app.quick.is_none(), "sem histórico não há seleção");
 }
 
 #[test]
@@ -369,8 +407,64 @@ fn com_url_o_app_vai_direto_para_a_tela_de_trabalho() {
 }
 
 #[test]
+fn rapidas_selecionam_a_mais_recente() {
+    let app = app_com_rapidas(&["a", "b"]);
+    assert_eq!(app.quick, Some(0));
+    assert_eq!(app.history.recent()[0].host, "a");
+}
+
+#[test]
+fn n_abre_o_formulario_vazio() {
+    let mut app = app_com_rapidas(&["a"]);
+    app.on_key(KeyEvent::from(KeyCode::Char('n')));
+    assert!(app.screen == Screen::Connect);
+    assert_eq!(app.field, Field::Host);
+    assert_eq!(app.connection.value(Field::Host), "127.0.0.1");
+    assert_eq!(app.connection.value(Field::Database), "");
+}
+
+#[test]
+fn enter_abre_a_rapida_preenchida_com_foco_na_senha() {
+    let mut app = app_com_rapidas(&["db.local"]);
+    app.on_key(KeyEvent::from(KeyCode::Enter));
+    assert!(app.screen == Screen::Connect);
+    assert_eq!(app.field, Field::Password);
+    assert_eq!(app.connection.value(Field::Host), "db.local");
+    assert_eq!(app.connection.value(Field::Port), "3306");
+    assert_eq!(app.connection.value(Field::User), "root");
+    assert_eq!(app.connection.value(Field::Database), "app");
+    assert_eq!(app.connection.value(Field::Password), "");
+}
+
+#[test]
+fn j_k_anda_pelas_rapidas() {
+    let mut app = app_com_rapidas(&["a", "b"]);
+    app.on_key(KeyEvent::from(KeyCode::Char('j')));
+    assert_eq!(app.quick, Some(1));
+    app.on_key(KeyEvent::from(KeyCode::Down));
+    assert_eq!(app.quick, Some(1), "clampa no fim");
+    app.on_key(KeyEvent::from(KeyCode::Char('k')));
+    assert_eq!(app.quick, Some(0));
+}
+
+#[test]
+fn esc_nas_rapidas_sai() {
+    let mut app = app_quick();
+    app.on_key(KeyEvent::from(KeyCode::Esc));
+    assert!(app.should_quit);
+}
+
+#[test]
+fn esc_no_formulario_volta_para_as_rapidas() {
+    let mut app = app_form();
+    app.on_key(KeyEvent::from(KeyCode::Esc));
+    assert!(app.screen == Screen::Quick);
+    assert!(!app.should_quit);
+}
+
+#[test]
 fn tab_anda_entre_os_campos_dando_a_volta() {
-    let mut app = App::new(None);
+    let mut app = app_form();
     app.on_key(KeyEvent::from(KeyCode::Tab));
     assert_eq!(app.field, Field::Port);
     app.on_key(KeyEvent::from(KeyCode::Down));
@@ -388,7 +482,7 @@ fn tab_anda_entre_os_campos_dando_a_volta() {
 
 #[test]
 fn digitar_edita_o_campo_com_foco_sem_sair() {
-    let mut app = App::new(None);
+    let mut app = app_form();
     app.field = Field::Database;
     // `q` e `j` são texto na tela de conexão.
     app.on_key(KeyEvent::from(KeyCode::Char('q')));
@@ -401,15 +495,8 @@ fn digitar_edita_o_campo_com_foco_sem_sair() {
 }
 
 #[test]
-fn esc_na_tela_de_conexao_sai_na_hora() {
-    let mut app = App::new(None);
-    app.on_key(KeyEvent::from(KeyCode::Esc));
-    assert!(app.should_quit);
-}
-
-#[test]
 fn formulario_incompleto_mostra_o_erro_e_nao_conecta() {
-    let mut app = App::new(None);
+    let mut app = app_form();
     app.on_key(KeyEvent::from(KeyCode::Enter));
     assert_eq!(app.connect_error.as_deref(), Some("informe o schema"));
     assert!(app.screen == Screen::Connect);
@@ -418,7 +505,7 @@ fn formulario_incompleto_mostra_o_erro_e_nao_conecta() {
 
 #[test]
 fn formulario_valido_pede_a_conexao() {
-    let mut app = App::new(None);
+    let mut app = app_form();
     app.field = Field::Database;
     app.on_key(KeyEvent::from(KeyCode::Char('a')));
     app.on_key(KeyEvent::from(KeyCode::Char('p')));
@@ -430,7 +517,7 @@ fn formulario_valido_pede_a_conexao() {
 
 #[test]
 fn enquanto_conecta_o_teclado_nao_edita() {
-    let mut app = App::new(None);
+    let mut app = app_form();
     app.connecting = true;
     app.field = Field::Host;
     app.on_key(KeyEvent::from(KeyCode::Char('x')));
@@ -438,8 +525,17 @@ fn enquanto_conecta_o_teclado_nao_edita() {
 }
 
 #[test]
-fn conexao_aceita_troca_para_a_tela_de_trabalho() {
-    let mut app = App::new(None);
+fn esc_durante_a_conexao_abandona_e_volta() {
+    let mut app = app_form();
+    app.connecting = true;
+    app.on_key(KeyEvent::from(KeyCode::Esc));
+    assert!(app.screen == Screen::Quick);
+    assert!(!app.connecting);
+}
+
+#[test]
+fn conexao_aceita_vai_para_a_grade_e_entra_nas_rapidas() {
+    let mut app = app_form();
     app.connecting = true;
     app.on_response(Response::Connected {
         server: String::from("MySQL 8.0.35"),
@@ -449,14 +545,34 @@ fn conexao_aceita_troca_para_a_tela_de_trabalho() {
     assert!(!app.connecting);
     assert_eq!(app.server, "MySQL 8.0.35");
     assert_eq!(app.database, "app");
+    assert_eq!(app.history.recent().len(), 1);
+    assert_eq!(app.history.recent()[0].host, "127.0.0.1");
 }
 
 #[test]
 fn conexao_recusada_volta_ao_formulario_com_o_motivo() {
-    let mut app = App::new(None);
+    let mut app = app_form();
     app.connecting = true;
     app.on_response(Response::Failed(String::from("falha ao conectar")));
     assert!(app.screen == Screen::Connect);
     assert!(!app.connecting);
     assert_eq!(app.connect_error.as_deref(), Some("falha ao conectar"));
+    assert!(app.history.recent().is_empty(), "falha não salva conexão");
+}
+
+#[test]
+fn enter_abre_a_rapida_com_a_senha_salva() {
+    let mut app = app_quick();
+    app.history = History::with(vec![Saved {
+        engine: String::from(Saved::MYSQL),
+        host: String::from("db.local"),
+        port: 3306,
+        user: String::from("root"),
+        database: String::from("app"),
+        password: Some(String::from("segredo")),
+        last_used: 1,
+    }]);
+    app.quick = Some(0);
+    app.on_key(KeyEvent::from(KeyCode::Enter));
+    assert_eq!(app.connection.value(Field::Password), "segredo");
 }

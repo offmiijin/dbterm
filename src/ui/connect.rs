@@ -5,21 +5,11 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
+use super::banner;
 use super::text::largura;
 use crate::app::App;
 use crate::config::{Connection, Field};
 use crate::theme;
-
-/// "DBTERM" na fonte ANSI Shadow do figlet; cada linha tem [`BANNER_WIDTH`]
-/// colunas de exibição.
-const BANNER: [&str; 6] = [
-    "██████╗  ██████╗  ████████╗ ███████╗ ██████╗  ███╗   ███╗",
-    "██╔══██╗ ██╔══██╗ ╚══██╔══╝ ██╔════╝ ██╔══██╗ ████╗ ████║",
-    "██║  ██║ ██████╔╝    ██║    █████╗   ██████╔╝ ██╔████╔██║",
-    "██║  ██║ ██╔══██╗    ██║    ██╔══╝   ██╔══██╗ ██║╚██╔╝██║",
-    "██████╔╝ ██████╔╝    ██║    ███████╗ ██║  ██║ ██║ ╚═╝ ██║",
-    "╚═════╝  ╚═════╝     ╚═╝    ╚══════╝ ╚═╝  ╚═╝ ╚═╝     ╚═╝",
-];
 
 /// Largura do rótulo de cada campo, alinhado à direita.
 const ROTULO: usize = 8;
@@ -57,18 +47,6 @@ fn linhas(app: &App, largura_tela: u16) -> Vec<Line<'static>> {
     linhas.push(Line::from(""));
     linhas.push(aviso(app).centered());
     linhas
-}
-
-/// A marca em letras grandes; em terminal estreito, só o nome.
-fn banner(largura_tela: u16) -> Vec<Line<'static>> {
-    if largura_tela as usize >= largura(BANNER[0]) {
-        BANNER
-            .iter()
-            .map(|linha| Line::from(*linha).style(theme::accent()).centered())
-            .collect()
-    } else {
-        vec![Line::from("dbterm").style(theme::accent()).centered()]
-    }
 }
 
 /// Largura do grupo de campos: o rótulo mais largo, mais o espaço do cursor,
@@ -125,6 +103,6 @@ fn aviso(app: &App) -> Line<'static> {
     } else if let Some(erro) = &app.connect_error {
         Line::from(format!("erro: {erro}")).style(theme::error())
     } else {
-        Line::from("enter conectar · tab próximo campo · esc sair").style(theme::muted())
+        Line::from("enter conectar · tab próximo campo · esc voltar").style(theme::muted())
     }
 }

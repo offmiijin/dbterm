@@ -10,10 +10,26 @@ pub(super) const PAGE: isize = 20;
 
 impl App {
     pub(super) fn on_key(&mut self, key: KeyEvent) {
-        if self.screen == Screen::Connect {
-            self.on_key_connect(key);
-            return;
+        match self.screen {
+            Screen::Quick => self.on_key_quick(key),
+            Screen::Connect => self.on_key_connect(key),
+            Screen::Browse => self.on_key_browse(key),
         }
+    }
+
+    /// Tela inicial: sem campo de texto, então `j`/`k`/`q` são atalhos.
+    fn on_key_quick(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') => self.should_quit = true,
+            KeyCode::Char('n') => self.new_connection(),
+            KeyCode::Enter => self.open_quick(),
+            KeyCode::Down | KeyCode::Char('j') => self.move_quick(1),
+            KeyCode::Up | KeyCode::Char('k') => self.move_quick(-1),
+            _ => {}
+        }
+    }
+
+    fn on_key_browse(&mut self, key: KeyEvent) {
         match self.mode {
             Mode::Rows => self.on_key_rows(key),
             Mode::Columns => self.on_key_columns(key),
@@ -28,14 +44,15 @@ impl App {
     /// `j`/`k`/`q` são texto; a navegação é por `tab` e setas.
     fn on_key_connect(&mut self, key: KeyEvent) {
         if self.connecting {
-            // Enquanto a conexão abre, só `esc` encerra o app.
+            // Enquanto a conexão abre, só `esc` volta e abandona a tentativa.
             if key.code == KeyCode::Esc {
-                self.should_quit = true;
+                self.connecting = false;
+                self.back_to_quick();
             }
             return;
         }
         match key.code {
-            KeyCode::Esc => self.should_quit = true,
+            KeyCode::Esc => self.back_to_quick(),
             KeyCode::Enter => self.submit_connection(),
             KeyCode::Tab | KeyCode::Down => self.move_field(1),
             KeyCode::BackTab | KeyCode::Up => self.move_field(-1),

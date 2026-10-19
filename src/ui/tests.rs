@@ -4,9 +4,50 @@ use ratatui::buffer::Buffer;
 
 use super::draw;
 use super::grid::RULE;
-use crate::app::{App, Status};
-use crate::config::Field;
+use crate::app::{App, Screen, Status};
+use crate::config::{Connection, Field};
 use crate::db::{ColumnKind, TableData};
+use crate::history::{History, Saved};
+
+/// App na tela inicial, sem histórico em disco.
+fn app_quick() -> App {
+    let mut app = App::new(None);
+    app.history = History::in_memory();
+    app.quick = None;
+    app
+}
+
+/// App com conexões rápidas salvas, na ordem dada (a primeira é a mais recente).
+fn app_com_rapidas(hosts: &[&str]) -> App {
+    let mut app = app_quick();
+    let total = hosts.len();
+    let entries = hosts
+        .iter()
+        .enumerate()
+        .map(|(i, host)| Saved {
+            engine: String::from(Saved::MYSQL),
+            host: String::from(*host),
+            port: 3306,
+            user: String::from("root"),
+            database: String::from("app"),
+            password: None,
+            last_used: (total - i) as u64,
+        })
+        .collect();
+    app.history = History::with(entries);
+    app.quick = Some(0);
+    app
+}
+
+/// App com o formulário de conexão aberto.
+fn app_form() -> App {
+    let mut app = app_quick();
+    app.screen = Screen::Connect;
+    app.connection = Connection::default();
+    app.field = Field::Host;
+    app.connect_error = None;
+    app
+}
 
 fn screen(app: &mut App) -> String {
     screen_at(app, 64)
@@ -429,7 +470,7 @@ fn aplica_paleta_catppuccin_macchiato() {
 
 #[test]
 fn tela_de_conexao_mostra_a_marca_e_o_formulario() {
-    let mut app = App::new(None);
+    let mut app = app_form();
     let terminal = terminal_de(&mut app, 80, 24);
     let screen = texto(terminal.backend().buffer());
     assert!(screen.contains("██████╗"), "{screen}");
@@ -442,7 +483,7 @@ fn tela_de_conexao_mostra_a_marca_e_o_formulario() {
 
 #[test]
 fn senha_nao_aparece_na_tela_de_conexao() {
-    let mut app = App::new(None);
+    let mut app = app_form();
     app.connection
         .value_mut(Field::Password)
         .push_str("segredo");
@@ -454,9 +495,41 @@ fn senha_nao_aparece_na_tela_de_conexao() {
 
 #[test]
 fn terminal_estreito_troca_a_marca_pelo_nome() {
-    let mut app = App::new(None);
+    let mut app = app_form();
     let terminal = terminal_de(&mut app, 30, 24);
     let screen = texto(terminal.backend().buffer());
     assert!(screen.contains("dbterm"), "{screen}");
     assert!(!screen.contains("██████"), "{screen}");
+}
+
+#[test]
+fn tela_inicial_mostra_as_conexoes_rapidas() {
+    let mut app = app_com_rapidas(&["db.local", "outro"]);
+    let terminal = terminal_de(&mut app, 80, 30);
+    let screen = texto(terminal.backend().buffer());
+    assert!(screen.contains("Conexões Rápidas"), "{screen}");
+    assert!(screen.contains("MySQL · db.local:3306"), "{screen}");
+    assert!(screen.contains("root @ app"), "{screen}");
+    assert!(screen.contains("outro:3306"), "{screen}");
+    assert!(screen.contains("enter abrir"), "{screen}");
+}
+
+#[test]
+fn tela_inicial_mostra_no_maximo_tres_conexoes() {
+    let mut app = app_com_rapidas(&["a", "b", "c", "d"]);
+    let terminal = terminal_de(&mut app, 80, 30);
+    let screen = texto(terminal.backend().buffer());
+    assert!(screen.contains("a:3306"), "{screen}");
+    assert!(screen.contains("b:3306"), "{screen}");
+    assert!(screen.contains("c:3306"), "{screen}");
+    assert!(!screen.contains("d:3306"), "{screen}");
+}
+
+#[test]
+fn tela_inicial_vazia_pede_nova_conexao() {
+    let mut app = app_quick();
+    let terminal = terminal_de(&mut app, 80, 24);
+    let screen = texto(terminal.backend().buffer());
+    assert!(screen.contains("nenhuma conexão salva"), "{screen}");
+    assert!(screen.contains("n nova conexão"), "{screen}");
 }

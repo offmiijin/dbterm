@@ -6,6 +6,8 @@
 
 pub mod app;
 pub mod config;
+mod crypto;
 pub mod db;
+pub mod history;
 pub mod theme;
 pub mod ui;

@@ -19,6 +19,7 @@ use ratatui::widgets::{ListState, TableState};
 
 use crate::config::{Connection, Field};
 use crate::db::{Db, Request, Response, TableData};
+use crate::history::{History, Saved};
 use crate::ui;
 
 /// Espera máxima por um evento antes de redesenhar (e drenar o banco).
@@ -27,7 +28,9 @@ const TICK: Duration = Duration::from_millis(50);
 /// Em qual tela o app está.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
-    /// Formulário de conexão, antes de abrir o primeiro banco.
+    /// Lista de conexões rápidas, a tela inicial.
+    Quick,
+    /// Formulário de conexão, para uma conexão nova ou pré-preenchida.
     Connect,
     /// Tabelas e dados da conexão aberta.
     Browse,
@@ -79,6 +82,10 @@ pub struct Edit {
 
 pub struct App {
     pub screen: Screen,
+    /// Conexões rápidas salvas, da mais recente para a mais antiga.
+    pub history: History,
+    /// Índice da conexão rápida selecionada.
+    pub quick: Option<usize>,
     /// Formulário da tela de conexão.
     pub connection: Connection,
     /// Campo em edição na tela de conexão.
@@ -109,15 +116,23 @@ pub struct App {
 }
 
 impl App {
-    /// Abre o app; sem URL, começa na tela de conexão.
+    /// Abre o app; sem URL, começa nas conexões rápidas.
     pub fn new(url: Option<&str>) -> Self {
         let db = Db::spawn();
+        let history = History::load();
+        let quick = if history.recent().is_empty() {
+            None
+        } else {
+            Some(0)
+        };
         let app = Self {
             screen: if url.is_some() {
                 Screen::Browse
             } else {
-                Screen::Connect
+                Screen::Quick
             },
+            history,
+            quick,
             connection: Connection::default(),
             field: Field::Host,
             connecting: false,
@@ -174,10 +189,12 @@ impl App {
             Response::Connected { server, database } => {
                 self.server = server;
                 self.database = database;
-                if self.screen == Screen::Connect {
-                    // Só sai do formulário quando a conexão foi aceita.
-                    self.screen = Screen::Browse;
+                if self.connecting {
+                    // Só sai do formulário quando a conexão foi aceita, e a
+                    // conexão usada sobe para o topo das rápidas.
                     self.connecting = false;
+                    self.history.touch(Saved::from_form(&self.connection));
+                    self.screen = Screen::Browse;
                     self.status = Status::Connecting;
                     self.db.request(Request::Tables);
                 }
@@ -216,7 +233,7 @@ impl App {
             }
             Response::Updated { table } => self.load(table),
             Response::Failed(message) => {
-                if self.screen == Screen::Connect {
+                if self.connecting {
                     // Falha ao conectar volta para o formulário com o motivo.
                     self.connecting = false;
                     self.connect_error = Some(message);
@@ -225,6 +242,46 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Abre o formulário vazio: o `n` das conexões rápidas.
+    pub(super) fn new_connection(&mut self) {
+        self.connection = Connection::default();
+        self.field = Field::Host;
+        self.connect_error = None;
+        self.screen = Screen::Connect;
+    }
+
+    /// Abre o formulário preenchido com a conexão rápida selecionada, senha
+    /// inclusa; o foco começa na senha.
+    pub(super) fn open_quick(&mut self) {
+        let Some(saved) = self
+            .quick
+            .and_then(|index| self.history.recent().get(index))
+            .cloned()
+        else {
+            return;
+        };
+        *self.connection.value_mut(Field::Host) = saved.host.clone();
+        *self.connection.value_mut(Field::Port) = saved.port.to_string();
+        *self.connection.value_mut(Field::User) = saved.user.clone();
+        *self.connection.value_mut(Field::Password) = saved.password.clone().unwrap_or_default();
+        *self.connection.value_mut(Field::Database) = saved.database.clone();
+        self.field = Field::Password;
+        self.connect_error = None;
+        self.screen = Screen::Connect;
+    }
+
+    /// Volta do formulário para as conexões rápidas.
+    pub(super) fn back_to_quick(&mut self) {
+        self.connect_error = None;
+        self.connection.value_mut(Field::Password).clear();
+        self.screen = Screen::Quick;
+    }
+
+    /// Anda pela lista de conexões rápidas.
+    pub(super) fn move_quick(&mut self, delta: isize) {
+        self.quick = input::step(self.quick, delta, self.history.recent().len());
     }
 
     /// Monta a URL do formulário e pede a conexão; erros ficam na tela.
