@@ -1,0 +1,140 @@
+//! Desenho da tela. Toda função aqui só lê o estado.
+//!
+//! O layout fica aqui; a grade de dados em `grid` e os pop-ups em `popup`.
+
+mod grid;
+mod popup;
+#[cfg(test)]
+mod tests;
+mod text;
+
+use ratatui::Frame;
+use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, BorderType, List, ListItem, Paragraph};
+
+use crate::app::{App, Focus, Mode, Status};
+use crate::db::ROW_LIMIT;
+use crate::theme;
+
+const KEYS: &str = "q sair · h/l foco · esc voltar/sair · j/k mover · enter abrir/colunas · r recarregar · g/G topo/fim";
+/// Espaço que a mensagem de estado nunca perde para a linha de atalhos.
+const MIN_STATUS: u16 = 32;
+
+pub fn draw(frame: &mut Frame, app: &mut App) {
+    let App {
+        server,
+        database,
+        tables,
+        current,
+        data,
+        focus,
+        status,
+        mode,
+        edit,
+        list_state,
+        table_state,
+        column,
+        ..
+    } = app;
+
+    frame.render_widget(Block::new().style(theme::base()), frame.area());
+
+    let [header, body, footer] = Layout::vertical([
+        Constraint::Length(1),
+        Constraint::Min(1),
+        Constraint::Length(1),
+    ])
+    .areas(frame.area());
+    let [side, main] =
+        Layout::horizontal([Constraint::Length(28), Constraint::Min(20)]).areas(body);
+
+    draw_header(frame, header, server, database, current.as_deref());
+
+    let titles: Vec<ListItem> = tables
+        .iter()
+        .map(|table| ListItem::new(table.as_str()))
+        .collect();
+    let list = List::new(titles)
+        .block(panel(
+            format!("tabelas ({})", tables.len()),
+            *focus == Focus::Tables,
+        ))
+        .highlight_symbol("❯ ")
+        .highlight_style(theme::selected());
+    frame.render_stateful_widget(list, side, list_state);
+
+    grid::draw_data(
+        frame,
+        main,
+        data.as_ref(),
+        *focus == Focus::Data,
+        table_state,
+        *column,
+        mode,
+    );
+
+    draw_footer(frame, footer, status, mode);
+    popup::draw_overlays(
+        frame,
+        frame.area(),
+        mode,
+        edit.as_ref(),
+        data.as_ref(),
+        current.as_deref(),
+    );
+}
+
+fn draw_header(frame: &mut Frame, area: Rect, server: &str, database: &str, table: Option<&str>) {
+    let server = if server.is_empty() {
+        "conectando…"
+    } else {
+        server
+    };
+    let mut line = Line::from(vec![
+        Span::styled(" dbterm ", theme::accent()),
+        Span::styled("·", theme::muted()),
+        Span::styled(format!(" {server} "), theme::text()),
+        Span::styled("·", theme::muted()),
+        Span::styled(format!(" schema: {database} "), theme::text()),
+    ]);
+    if let Some(table) = table {
+        line.push_span(Span::styled("·", theme::muted()));
+        line.push_span(Span::styled(format!(" tabela: {table} "), theme::text()));
+    }
+    frame.render_widget(Paragraph::new(line), area);
+}
+
+fn draw_footer(frame: &mut Frame, area: Rect, status: &Status, mode: &Mode) {
+    let (text, style) = match status {
+        Status::Connecting => (String::from("conectando…"), theme::warning()),
+        Status::Loading(table) => (format!("carregando {table}…"), theme::warning()),
+        Status::Ready => (format!("LIMIT {ROW_LIMIT}"), theme::muted()),
+        Status::Notice(message) => (message.clone(), theme::warning()),
+        Status::Failed(message) => (format!("erro: {message}"), theme::error()),
+    };
+    let keys = match mode {
+        Mode::Rows => KEYS,
+        Mode::Columns => "h/l coluna · enter editar · esc voltar",
+        Mode::Edit => "enter continuar · esc cancelar",
+        Mode::Confirm => "enter executar · esc cancelar",
+        Mode::ConfirmAgain => "enter confirmo · esc cancelar",
+    };
+
+    let width = (keys.chars().count() as u16).min(area.width.saturating_sub(MIN_STATUS));
+    let [left, right] =
+        Layout::horizontal([Constraint::Fill(1), Constraint::Length(width)]).areas(area);
+    frame.render_widget(Paragraph::new(Line::from(text).style(style)), left);
+    frame.render_widget(
+        Paragraph::new(keys).style(theme::muted()).right_aligned(),
+        right,
+    );
+}
+
+/// Moldura de painel, usada pela grade e pela lista de tabelas.
+pub(super) fn panel(title: String, focused: bool) -> Block<'static> {
+    Block::bordered()
+        .border_type(BorderType::Rounded)
+        .border_style(theme::border(focused))
+        .title(format!(" {title} "))
+}
