@@ -18,7 +18,7 @@ use ratatui::crossterm::event::{self, Event, KeyEventKind};
 use ratatui::widgets::{ListState, TableState};
 
 use crate::config::{Connection, Field};
-use crate::db::{Db, Request, Response, TableData};
+use crate::db::{Db, ROW_LIMIT, Request, Response, TableData};
 use crate::history::{History, Saved};
 use crate::ui;
 
@@ -116,6 +116,10 @@ pub struct App {
     /// tabelas com mais colunas do que cabe na tela. Quem ajusta à largura e à
     /// coluna selecionada é `ui`.
     pub hscroll: usize,
+    /// A tabela acabou: a última página veio com menos linhas que o pedido.
+    pub end_reached: bool,
+    /// Há uma página a caminho: não vale pedir de novo a cada tecla.
+    pub loading_more: bool,
     db: Db,
 }
 
@@ -156,6 +160,8 @@ impl App {
             table_state: TableState::default(),
             column: None,
             hscroll: 0,
+            end_reached: false,
+            loading_more: false,
             db,
         };
         if let Some(url) = url {
@@ -213,12 +219,24 @@ impl App {
                     self.load(self.tables[0].clone());
                 }
             }
-            Response::Rows { table, data } => {
+            Response::Rows {
+                table,
+                offset,
+                limit,
+                data,
+            } => {
+                if offset > 0 {
+                    // Página seguinte: só junta ao que já está na tela.
+                    self.append_page(table, limit, data);
+                    return;
+                }
                 let mesma_tabela = self.current.as_deref() == Some(table.as_str());
                 let linhas = data.rows.len();
                 let colunas = data.columns.len();
                 self.current = Some(table);
                 self.data = Some(data);
+                self.end_reached = linhas < limit;
+                self.loading_more = false;
                 if mesma_tabela && linhas > 0 {
                     // Recarregar a mesma tabela (ex.: depois de editar) não pode
                     // jogar a seleção de volta para a primeira linha.
@@ -239,6 +257,8 @@ impl App {
             }
             Response::Updated { table } => self.load(table),
             Response::Failed(message) => {
+                // Uma página que falhou não pode deixar a próxima travada.
+                self.loading_more = false;
                 if self.connecting {
                     // Falha ao conectar volta para o formulário com o motivo.
                     self.connecting = false;
@@ -248,6 +268,46 @@ impl App {
                 }
             }
         }
+    }
+
+    /// Junta a página seguinte à grade, se ainda for a mesma tabela.
+    fn append_page(&mut self, table: String, limit: usize, data: TableData) {
+        self.loading_more = false;
+        if self.current.as_deref() != Some(table.as_str()) {
+            // A tabela trocou enquanto a página vinha: ela não serve mais.
+            return;
+        }
+        self.end_reached = data.rows.len() < limit;
+        if let Some(atual) = self.data.as_mut() {
+            atual.rows.extend(data.rows);
+        }
+        self.status = Status::Ready;
+    }
+
+    /// Pede a página seguinte quando a seleção encosta na última linha carregada.
+    pub(super) fn load_next_page(&mut self) {
+        if self.loading_more || self.end_reached {
+            return;
+        }
+        let Some(data) = self.data.as_ref() else {
+            return;
+        };
+        let Some(selecionada) = self.table_state.selected() else {
+            return;
+        };
+        if selecionada + 1 < data.rows.len() {
+            return;
+        }
+        let Some(table) = self.current.clone() else {
+            return;
+        };
+        self.loading_more = true;
+        self.status = Status::Loading(table.clone());
+        self.db.request(Request::Rows {
+            table,
+            offset: data.rows.len(),
+            limit: ROW_LIMIT,
+        });
     }
 
     /// Abre o formulário vazio: o `n` das conexões rápidas.
@@ -302,9 +362,28 @@ impl App {
         }
     }
 
+    /// Pede a tabela do começo; recarregar a mesma mantém as páginas já
+    /// carregadas, que só se perdem ao abrir outra tabela.
     pub(super) fn load(&mut self, table: String) {
         self.status = Status::Loading(table.clone());
-        self.db.request(Request::Rows { table });
+        self.loading_more = false;
+        self.end_reached = false;
+        let limit = self.page_limit(&table);
+        self.db.request(Request::Rows {
+            table,
+            offset: 0,
+            limit,
+        });
+    }
+
+    /// Quantas linhas pedir ao carregar `table`: a tabela que já está na tela
+    /// mantém o tanto que já veio; uma tabela nova começa com uma página.
+    fn page_limit(&self, table: &str) -> usize {
+        if self.current.as_deref() == Some(table) {
+            self.row_count().max(ROW_LIMIT)
+        } else {
+            ROW_LIMIT
+        }
     }
 
     /// Manda o `UPDATE` para o worker e volta ao modo coluna.

@@ -16,7 +16,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, List, ListItem, Paragraph};
 
 use crate::app::{App, Focus, Mode, Screen, Status};
-use crate::db::ROW_LIMIT;
+use crate::db::TableData;
 use crate::theme;
 
 const KEYS: &str = "q sair · h/l colunas · esc voltar/sair · j/k mover · enter abrir/colunas · r recarregar · g/G topo/fim";
@@ -70,6 +70,7 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         table_state,
         column,
         hscroll,
+        end_reached,
         ..
     } = app;
 
@@ -110,7 +111,7 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         mode,
     );
 
-    draw_footer(frame, footer, status, mode);
+    draw_footer(frame, footer, status, mode, data, *end_reached);
     popup::draw_overlays(
         frame,
         frame.area(),
@@ -141,11 +142,26 @@ fn draw_header(frame: &mut Frame, area: Rect, server: &str, database: &str, tabl
     frame.render_widget(Paragraph::new(line), area);
 }
 
-fn draw_footer(frame: &mut Frame, area: Rect, status: &Status, mode: &Mode) {
+fn draw_footer(
+    frame: &mut Frame,
+    area: Rect,
+    status: &Status,
+    mode: &Mode,
+    data: &Option<TableData>,
+    end_reached: bool,
+) {
     let (text, style) = match status {
         Status::Connecting => (String::from("conectando…"), theme::warning()),
         Status::Loading(table) => (format!("carregando {table}…"), theme::warning()),
-        Status::Ready => (format!("LIMIT {ROW_LIMIT}"), theme::muted()),
+        // Quantas linhas estão na grade e se ainda há página para carregar.
+        Status::Ready => match (data, end_reached) {
+            (Some(data), false) => (
+                format!("{} linhas · ↓ carrega mais", data.rows.len()),
+                theme::muted(),
+            ),
+            (Some(data), true) => (format!("{} linhas", data.rows.len()), theme::muted()),
+            (None, _) => (String::new(), theme::muted()),
+        },
         Status::Notice(message) => (message.clone(), theme::warning()),
         Status::Failed(message) => (format!("erro: {message}"), theme::error()),
     };

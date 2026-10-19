@@ -583,3 +583,15 @@ fn coluna_selecionada_fora_da_tela_puxa_a_rolagem() {
     assert!(screen.contains("coluna_5"), "{screen}");
     assert!(screen.contains("col: coluna_5"), "{screen}");
 }
+
+#[test]
+fn rodape_mostra_o_que_foi_carregado_e_o_fim_da_tabela() {
+    let mut app = app_com_dados();
+    let tela = screen_at(&mut app, 100);
+    assert!(tela.contains("2 linhas · ↓ carrega mais"), "{tela}");
+
+    // Página curta: a tabela acabou e o rodapé para de convidar a descer.
+    app.end_reached = true;
+    let tela = screen_at(&mut app, 100);
+    assert!(!tela.contains("carrega mais"), "{tela}");
+}

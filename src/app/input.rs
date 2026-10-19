@@ -260,6 +260,7 @@ impl App {
                 let len = self.row_count();
                 let next = step(self.table_state.selected(), delta, len);
                 self.table_state.select(next);
+                self.load_next_page();
             }
         }
     }
@@ -277,6 +278,8 @@ impl App {
                 if len > 0 {
                     self.table_state
                         .select(Some(if last { len - 1 } else { 0 }));
+                    // `G` encosta na última linha carregada: a próxima página vem.
+                    self.load_next_page();
                 }
             }
         }
