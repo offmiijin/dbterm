@@ -13,8 +13,7 @@ use crate::app::{App, Edit, Focus, Mode, Status};
 use crate::db::{ROW_LIMIT, SqlPart, TableData, update_preview};
 use crate::theme;
 
-const KEYS: &str =
-    "q sair · tab foco · j/k mover · enter abrir/colunas · r recarregar · g/G topo/fim";
+const KEYS: &str = "q sair · h/l foco · esc voltar/sair · j/k mover · enter abrir/colunas · r recarregar · g/G topo/fim";
 /// Largura máxima de uma coluna da grade.
 const MAX_COL: usize = 28;
 /// Espaço que a mensagem de estado nunca perde para a linha de atalhos.

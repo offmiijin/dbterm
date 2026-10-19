@@ -174,13 +174,15 @@ impl App {
 
     fn on_key_rows(&mut self, key: KeyEvent) {
         match key.code {
-            KeyCode::Char('q') | KeyCode::Esc => self.should_quit = true,
-            KeyCode::Tab | KeyCode::BackTab => {
-                self.focus = match self.focus {
-                    Focus::Tables => Focus::Data,
-                    Focus::Data => Focus::Tables,
-                };
-            }
+            KeyCode::Char('q') => self.should_quit = true,
+            // Nos registros, `esc` volta às tabelas; só sai nas tabelas.
+            KeyCode::Esc => match self.focus {
+                Focus::Tables => self.should_quit = true,
+                Focus::Data => self.focus = Focus::Tables,
+            },
+            // Painéis como janelas do vim: `h` à esquerda, `l` à direita.
+            KeyCode::Char('h') => self.focus = Focus::Tables,
+            KeyCode::Char('l') => self.focus = Focus::Data,
             KeyCode::Down | KeyCode::Char('j') => self.move_selection(1),
             KeyCode::Up | KeyCode::Char('k') => self.move_selection(-1),
             KeyCode::PageDown => self.move_selection(PAGE),
@@ -375,10 +377,22 @@ impl App {
         }
     }
 
+    /// Enter na lista: abre a tabela selecionada; se ela já está aberta, o
+    /// segundo enter leva direto aos registros (sem precisar de `l`).
     fn open_selected_table(&mut self) {
-        if let Some(table) = self.list_state.selected().and_then(|i| self.tables.get(i)) {
-            self.load(table.clone());
+        let Some(table) = self
+            .list_state
+            .selected()
+            .and_then(|i| self.tables.get(i))
+            .cloned()
+        else {
+            return;
+        };
+        if self.current.as_deref() == Some(table.as_str()) && self.data.is_some() {
+            self.focus = Focus::Data;
+            return;
         }
+        self.load(table);
     }
 
     fn reload(&mut self) {
@@ -506,11 +520,44 @@ mod tests {
         app.on_key(KeyEvent::from(KeyCode::Char('G')));
         assert_eq!(app.list_state.selected(), Some(1));
 
-        app.on_key(KeyEvent::from(KeyCode::Tab));
+        // `h`/`l` trocam de painel; `tab` não mexe mais no foco.
+        app.on_key(KeyEvent::from(KeyCode::Char('l')));
         assert!(app.focus == Focus::Data);
+        app.on_key(KeyEvent::from(KeyCode::Char('h')));
+        assert!(app.focus == Focus::Tables);
 
         app.on_key(KeyEvent::from(KeyCode::Char('q')));
         assert!(app.should_quit);
+    }
+
+    #[test]
+    fn esc_nos_registros_volta_as_tabelas_e_so_sai_nelas() {
+        let mut app = app_com_grade();
+        app.focus = Focus::Data;
+
+        // Nos registros, `esc` volta às tabelas em vez de sair.
+        app.on_key(KeyEvent::from(KeyCode::Esc));
+        assert!(app.focus == Focus::Tables);
+        assert!(!app.should_quit);
+
+        // Nas tabelas, `esc` sai da aplicação.
+        app.on_key(KeyEvent::from(KeyCode::Esc));
+        assert!(app.should_quit);
+    }
+
+    #[test]
+    fn h_l_trocam_de_painel_e_tab_nao_faz_nada() {
+        let mut app = app_com_grade();
+        app.on_key(KeyEvent::from(KeyCode::Char('h')));
+        assert!(app.focus == Focus::Tables);
+        app.on_key(KeyEvent::from(KeyCode::Char('l')));
+        assert!(app.focus == Focus::Data);
+
+        // Tab foi removido da troca de foco entre os painéis.
+        app.on_key(KeyEvent::from(KeyCode::Tab));
+        assert!(app.focus == Focus::Data);
+        app.on_key(KeyEvent::from(KeyCode::BackTab));
+        assert!(app.focus == Focus::Data);
     }
 
     #[test]
@@ -635,6 +682,50 @@ mod tests {
                 .map(crate::ui::data_column),
             Some(2)
         );
+    }
+
+    #[test]
+    fn segundo_enter_na_tabela_aberta_vai_aos_registros() {
+        let mut app = app();
+        app.tables = vec![String::from("users")];
+        app.list_state.select(Some(0));
+        app.status = Status::Ready;
+
+        // Primeiro enter: começa a carregar e o foco continua na lista.
+        app.on_key(KeyEvent::from(KeyCode::Enter));
+        assert!(app.focus == Focus::Tables);
+        assert!(matches!(app.status, Status::Loading(ref t) if t == "users"));
+
+        // Resposta: os registros ficam prontos, mas o foco segue na lista.
+        app.on_response(Response::Rows {
+            table: String::from("users"),
+            data: TableData {
+                columns: vec![String::from("id")],
+                kinds: vec![ColumnKind::Number],
+                rows: vec![vec![String::from("1")]],
+                primary_key: vec![0],
+            },
+        });
+        assert!(app.focus == Focus::Tables);
+
+        // Segundo enter: vai direto aos registros, sem precisar de `l`.
+        app.on_key(KeyEvent::from(KeyCode::Enter));
+        assert!(app.focus == Focus::Data);
+        assert_eq!(app.mode, Mode::Rows);
+    }
+
+    #[test]
+    fn enter_em_outra_tabela_carrega_sem_pular_aos_registros() {
+        // `users` está aberta, mas a lista aponta para `orders`: o enter deve
+        // carregar a nova tabela e manter o foco na lista.
+        let mut app = app_com_grade();
+        app.focus = Focus::Tables;
+        app.tables = vec![String::from("users"), String::from("orders")];
+        app.list_state.select(Some(1));
+
+        app.on_key(KeyEvent::from(KeyCode::Enter));
+        assert!(app.focus == Focus::Tables);
+        assert!(matches!(app.status, Status::Loading(ref t) if t == "orders"));
     }
 
     #[test]
