@@ -69,6 +69,8 @@ impl TableData {
 
 #[derive(Debug)]
 pub enum Request {
+    /// Abre a conexão com a URL informada.
+    Connect { url: String },
     /// Lista as tabelas do schema atual.
     Tables,
     /// Busca as primeiras [`ROW_LIMIT`] linhas de uma tabela.

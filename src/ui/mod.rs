@@ -2,8 +2,10 @@
 //!
 //! O layout fica aqui; a grade de dados em `grid` e os pop-ups em `popup`.
 
+mod connect;
 mod grid;
 mod popup;
+mod quick;
 #[cfg(test)]
 mod tests;
 mod text;
@@ -13,7 +15,7 @@ use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, List, ListItem, Paragraph};
 
-use crate::app::{App, Focus, Mode, Status};
+use crate::app::{App, Focus, Mode, Screen, Status};
 use crate::db::ROW_LIMIT;
 use crate::theme;
 
@@ -21,7 +23,39 @@ const KEYS: &str = "q sair · h/l foco · esc voltar/sair · j/k mover · enter 
 /// Espaço que a mensagem de estado nunca perde para a linha de atalhos.
 const MIN_STATUS: u16 = 32;
 
+/// "DBTERM" na fonte ANSI Shadow do figlet; cada linha tem 57 colunas.
+const BANNER: [&str; 6] = [
+    "██████╗  ██████╗  ████████╗ ███████╗ ██████╗  ███╗   ███╗",
+    "██╔══██╗ ██╔══██╗ ╚══██╔══╝ ██╔════╝ ██╔══██╗ ████╗ ████║",
+    "██║  ██║ ██████╔╝    ██║    █████╗   ██████╔╝ ██╔████╔██║",
+    "██║  ██║ ██╔══██╗    ██║    ██╔══╝   ██╔══██╗ ██║╚██╔╝██║",
+    "██████╔╝ ██████╔╝    ██║    ███████╗ ██║  ██║ ██║ ╚═╝ ██║",
+    "╚═════╝  ╚═════╝     ╚═╝    ╚══════╝ ╚═╝  ╚═╝ ╚═╝     ╚═╝",
+];
+
+/// A marca em letras grandes; em terminal estreito, só o nome.
+fn banner(largura_tela: u16) -> Vec<Line<'static>> {
+    if largura_tela as usize >= text::largura(BANNER[0]) {
+        BANNER
+            .iter()
+            .map(|linha| Line::from(*linha).style(theme::accent()).centered())
+            .collect()
+    } else {
+        vec![Line::from("dbterm").style(theme::accent()).centered()]
+    }
+}
+
 pub fn draw(frame: &mut Frame, app: &mut App) {
+    frame.render_widget(Block::new().style(theme::base()), frame.area());
+    match app.screen {
+        Screen::Quick => quick::draw(frame, frame.area(), app),
+        Screen::Connect => connect::draw(frame, frame.area(), app),
+        Screen::Browse => draw_browse(frame, app),
+    }
+}
+
+/// Tela de trabalho: lista de tabelas, grade e pop-ups.
+fn draw_browse(frame: &mut Frame, app: &mut App) {
     let App {
         server,
         database,
@@ -37,8 +71,6 @@ pub fn draw(frame: &mut Frame, app: &mut App) {
         column,
         ..
     } = app;
-
-    frame.render_widget(Block::new().style(theme::base()), frame.area());
 
     let [header, body, footer] = Layout::vertical([
         Constraint::Length(1),

@@ -1,5 +1,5 @@
-//! A thread de trabalho: uma conexão MySQL, um canal de pedidos e um de
-//! respostas.
+//! A thread de trabalho: um canal de pedidos e um de respostas, com a conexão
+//! MySQL aberta sob demanda por [`Request::Connect`].
 
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread;
@@ -16,15 +16,24 @@ pub struct Db {
 }
 
 impl Db {
-    pub fn connect(url: &str) -> Self {
+    /// Um `Db` ainda sem conexão: a URL chega depois, com `Request::Connect`.
+    pub fn spawn() -> Self {
         let (req_tx, req_rx) = mpsc::channel();
         let (res_tx, res_rx) = mpsc::channel();
-        let url = url.to_owned();
-        thread::spawn(move || worker(&url, &res_tx, &req_rx));
+        thread::spawn(move || worker(&res_tx, &req_rx));
         Self {
             requests: req_tx,
             responses: res_rx,
         }
+    }
+
+    /// Um `Db` que já pede a conexão com a URL.
+    pub fn connect(url: &str) -> Self {
+        let db = Self::spawn();
+        db.request(Request::Connect {
+            url: url.to_owned(),
+        });
+        db
     }
 
     pub fn request(&self, request: Request) {
@@ -43,42 +52,44 @@ impl Db {
     }
 }
 
-fn worker(url: &str, tx: &Sender<Response>, rx: &Receiver<Request>) {
-    let opts = match Opts::from_url(url) {
-        Ok(opts) => opts,
-        Err(err) => return fail(tx, format!("URL inválida: {err}")),
-    };
-    let database = opts.get_db_name().unwrap_or("(nenhum schema)").to_owned();
-
-    let mut conn = match Conn::new(opts) {
-        Ok(conn) => conn,
-        Err(err) => return fail(tx, format!("falha ao conectar: {err}")),
-    };
-
-    let (major, minor, patch) = conn.server_version();
-    let _ = tx.send(Response::Connected {
-        server: format!("MySQL {major}.{minor}.{patch}"),
-        database,
-    });
-
+fn worker(tx: &Sender<Response>, rx: &Receiver<Request>) {
+    // A conexão nasce no primeiro `Connect`; antes disso, os pedidos de dados
+    // falham com "sem conexão" em vez de travar a UI.
+    let mut conn: Option<Conn> = None;
     while let Ok(request) = rx.recv() {
         let response = match request {
-            Request::Tables => match tables(&mut conn) {
-                Ok(tables) => Response::Tables(tables),
-                Err(err) => Response::Failed(err.to_string()),
+            Request::Connect { url } => match open(&url) {
+                Ok((opened, response)) => {
+                    conn = Some(opened);
+                    response
+                }
+                Err(message) => Response::Failed(message),
             },
-            Request::Rows { table } => match rows(&mut conn, &table) {
-                Ok(data) => Response::Rows { table, data },
-                Err(err) => Response::Failed(err.to_string()),
+            Request::Tables => match conn.as_mut() {
+                Some(conn) => match tables(conn) {
+                    Ok(tables) => Response::Tables(tables),
+                    Err(err) => Response::Failed(err.to_string()),
+                },
+                None => sem_conexao(),
+            },
+            Request::Rows { table } => match conn.as_mut() {
+                Some(conn) => match rows(conn, &table) {
+                    Ok(data) => Response::Rows { table, data },
+                    Err(err) => Response::Failed(err.to_string()),
+                },
+                None => sem_conexao(),
             },
             Request::Update {
                 table,
                 column,
                 value,
                 key,
-            } => match update(&mut conn, &table, &column, value, &key) {
-                Ok(()) => Response::Updated { table },
-                Err(err) => Response::Failed(err),
+            } => match conn.as_mut() {
+                Some(conn) => match update(conn, &table, &column, value, &key) {
+                    Ok(()) => Response::Updated { table },
+                    Err(err) => Response::Failed(err),
+                },
+                None => sem_conexao(),
             },
         };
         if tx.send(response).is_err() {
@@ -87,8 +98,21 @@ fn worker(url: &str, tx: &Sender<Response>, rx: &Receiver<Request>) {
     }
 }
 
-fn fail(tx: &Sender<Response>, message: String) {
-    let _ = tx.send(Response::Failed(message));
+/// Abre a conexão e monta a resposta de boas-vindas, ou explica a falha.
+fn open(url: &str) -> Result<(Conn, Response), String> {
+    let opts = Opts::from_url(url).map_err(|err| format!("URL inválida: {err}"))?;
+    let database = opts.get_db_name().unwrap_or("(nenhum schema)").to_owned();
+    let conn = Conn::new(opts).map_err(|err| format!("falha ao conectar: {err}"))?;
+    let (major, minor, patch) = conn.server_version();
+    let response = Response::Connected {
+        server: format!("MySQL {major}.{minor}.{patch}"),
+        database,
+    };
+    Ok((conn, response))
+}
+
+fn sem_conexao() -> Response {
+    Response::Failed(String::from("sem conexão"))
 }
 
 #[cfg(test)]
@@ -106,6 +130,24 @@ mod tests {
         loop {
             if let Some(Response::Failed(message)) = db.poll() {
                 assert!(message.contains("conectar"), "{message}");
+                return;
+            }
+            assert!(Instant::now() < deadline, "worker não respondeu");
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    /// Sem `Connect`, um pedido de dados responde "sem conexão" na hora.
+    #[test]
+    fn pedido_sem_conexao_falha() {
+        use std::time::{Duration, Instant};
+
+        let db = Db::spawn();
+        db.request(Request::Tables);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Some(Response::Failed(message)) = db.poll() {
+                assert_eq!(message, "sem conexão");
                 return;
             }
             assert!(Instant::now() < deadline, "worker não respondeu");
