@@ -85,6 +85,55 @@ impl DatabaseField {
     }
 }
 
+/// Campo do pop-up "Editar" da tabela, na ordem de tabulação.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TableField {
+    Name,
+    Comment,
+    Engine,
+    RowFormat,
+    AutoIncrement,
+    Charset,
+    Collation,
+}
+
+impl TableField {
+    /// Todos os campos, na ordem de exibição e de tabulação.
+    pub const ALL: [TableField; 7] = [
+        TableField::Name,
+        TableField::Comment,
+        TableField::Engine,
+        TableField::RowFormat,
+        TableField::AutoIncrement,
+        TableField::Charset,
+        TableField::Collation,
+    ];
+
+    /// Rótulo mostrado à esquerda do valor.
+    pub fn titulo(self) -> &'static str {
+        match self {
+            TableField::Name => "Tabela",
+            TableField::Comment => "Comentário",
+            TableField::Engine => "Engine",
+            TableField::RowFormat => "Row format",
+            TableField::AutoIncrement => "Auto-increment",
+            TableField::Charset => "Charset",
+            TableField::Collation => "Collation",
+        }
+    }
+
+    /// O campo abre uma lista de opções? O resto se digita.
+    pub fn dropdown(self) -> bool {
+        matches!(
+            self,
+            TableField::Engine
+                | TableField::RowFormat
+                | TableField::Charset
+                | TableField::Collation
+        )
+    }
+}
+
 /// Valores digitados na tela de conexão.
 #[derive(Debug)]
 pub struct Connection {

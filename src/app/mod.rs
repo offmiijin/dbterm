@@ -17,9 +17,10 @@ use ratatui::DefaultTerminal;
 use ratatui::crossterm::event::{self, Event, KeyEventKind};
 use ratatui::widgets::{ListState, TableState};
 
-use crate::config::{Connection, DatabaseField, Field};
+use crate::config::{Connection, DatabaseField, Field, TableField};
 use crate::db::{
-    Collation, DatabaseAlter, DatabaseInfo, Db, ROW_LIMIT, Request, Response, TableData,
+    Collation, DatabaseAlter, DatabaseInfo, Db, ROW_FORMATS, ROW_LIMIT, Request, Response,
+    TableAlter, TableData, TableInfo,
 };
 use crate::history::{History, Saved};
 use crate::ui;
@@ -119,14 +120,14 @@ pub struct DatabaseEdit {
     /// Campo em edição no pop-up.
     pub field: DatabaseField,
     /// Lista aberta de um dos campos, enquanto o usuário escolhe.
-    pub picker: Option<Picker>,
+    pub picker: Option<Picker<DatabaseField>>,
 }
 
-/// Lista de opções aberta sobre o pop-up do banco.
+/// Lista de opções aberta sobre um pop-up de edição.
 #[derive(Debug)]
-pub struct Picker {
+pub struct Picker<F> {
     /// Campo que a lista está escolhendo.
-    pub field: DatabaseField,
+    pub field: F,
     pub items: Vec<String>,
     /// Item destacado.
     pub index: usize,
@@ -246,6 +247,185 @@ fn sim_nao(valor: Option<bool>) -> String {
     }
 }
 
+/// Edição em andamento de uma tabela, aberta pelo `e` nas tabelas.
+#[derive(Debug)]
+pub struct TableEdit {
+    /// Como a tabela está no servidor: só o que mudar daqui vira `ALTER`.
+    pub original: TableInfo,
+    /// Os valores como estão no pop-up, menos o auto-increment.
+    pub values: TableInfo,
+    /// Texto do auto-increment: é número, mas se digita.
+    pub auto_increment: String,
+    /// Campo em edição no pop-up.
+    pub field: TableField,
+    /// Lista aberta de um dos campos, enquanto o usuário escolhe.
+    pub picker: Option<Picker<TableField>>,
+}
+
+impl TableEdit {
+    pub fn new(info: TableInfo) -> Self {
+        let auto_increment = info
+            .auto_increment
+            .map(|valor| valor.to_string())
+            .unwrap_or_default();
+        Self {
+            original: info.clone(),
+            values: info,
+            auto_increment,
+            field: TableField::Name,
+            picker: None,
+        }
+    }
+
+    /// Campos do pop-up na ordem de tabulação: os que o servidor informa.
+    pub fn fields(&self) -> Vec<TableField> {
+        TableField::ALL
+            .into_iter()
+            .filter(|field| self.available(*field))
+            .collect()
+    }
+
+    /// O servidor informa este campo? O auto-increment só existe quando a
+    /// tabela tem uma coluna `AUTO_INCREMENT`.
+    pub fn available(&self, field: TableField) -> bool {
+        match field {
+            TableField::AutoIncrement => self.original.auto_increment.is_some(),
+            _ => true,
+        }
+    }
+
+    /// Valor do campo como aparece no pop-up.
+    pub fn value(&self, field: TableField) -> String {
+        match field {
+            TableField::Name => self.values.name.clone(),
+            TableField::Comment => self.values.comment.clone(),
+            TableField::Engine => self.values.engine.clone(),
+            TableField::RowFormat => self.values.row_format.clone(),
+            TableField::AutoIncrement => self.auto_increment.clone(),
+            TableField::Charset => self.values.charset.clone(),
+            TableField::Collation => self.values.collation.clone(),
+        }
+    }
+
+    /// Collations que combinam com o charset escolhido.
+    pub fn collations(&self) -> impl Iterator<Item = &Collation> {
+        self.values
+            .collations
+            .iter()
+            .filter(|collation| collation.charset == self.values.charset)
+    }
+
+    /// Opções do campo, na ordem em que aparecem na lista.
+    pub fn options(&self, field: TableField) -> Vec<String> {
+        match field {
+            TableField::Engine => self.values.engines.clone(),
+            TableField::RowFormat => ROW_FORMATS.iter().map(|nome| (*nome).to_owned()).collect(),
+            TableField::Charset => self
+                .values
+                .charsets
+                .iter()
+                .map(|charset| charset.name.clone())
+                .collect(),
+            TableField::Collation => self
+                .collations()
+                .map(|collation| collation.name.clone())
+                .collect(),
+            TableField::Name | TableField::Comment | TableField::AutoIncrement => Vec::new(),
+        }
+    }
+
+    /// Enter no campo com foco: abre a lista, que já sai no valor atual.
+    pub fn activate(&mut self) {
+        let campo = self.field;
+        if !campo.dropdown() {
+            return;
+        }
+        let items = self.options(campo);
+        if items.is_empty() {
+            return;
+        }
+        let atual = self.value(campo);
+        let index = items.iter().position(|item| *item == atual).unwrap_or(0);
+        self.picker = Some(Picker {
+            field: campo,
+            items,
+            index,
+        });
+    }
+
+    /// Aplica na escolha da lista o valor do campo.
+    pub fn choose(&mut self, field: TableField, item: String) {
+        match field {
+            TableField::Engine => self.values.engine = item,
+            TableField::RowFormat => self.values.row_format = item,
+            TableField::Charset => {
+                self.values.charset = item;
+                // A collation acompanha o charset: vai para a padrão dele.
+                if let Some(charset) = self
+                    .values
+                    .charsets
+                    .iter()
+                    .find(|charset| charset.name == self.values.charset)
+                {
+                    self.values.collation = charset.default_collation.clone();
+                }
+            }
+            TableField::Collation => self.values.collation = item,
+            TableField::Name | TableField::Comment | TableField::AutoIncrement => {}
+        }
+    }
+
+    /// Digita no campo de texto com foco.
+    pub fn type_char(&mut self, caractere: char) {
+        match self.field {
+            TableField::Name => self.values.name.push(caractere),
+            TableField::Comment => self.values.comment.push(caractere),
+            TableField::AutoIncrement => self.auto_increment.push(caractere),
+            _ => {}
+        }
+    }
+
+    /// Apaga o último caractere do campo de texto com foco.
+    pub fn backspace(&mut self) {
+        match self.field {
+            TableField::Name => {
+                self.values.name.pop();
+            }
+            TableField::Comment => {
+                self.values.comment.pop();
+            }
+            TableField::AutoIncrement => {
+                self.auto_increment.pop();
+            }
+            _ => {}
+        }
+    }
+
+    /// As opções que mudaram, a partir do que o pop-up tem agora.
+    ///
+    /// O auto-increment fica como está quando o campo é apagado; um valor
+    /// digitado que não é número impede a gravação, assim como um nome vazio.
+    pub fn alter(&self) -> Result<TableAlter, String> {
+        if self.values.name.trim().is_empty() {
+            return Err(String::from("informe o nome da tabela"));
+        }
+        let mut depois = self.values.clone();
+        match self.auto_increment.trim() {
+            "" => depois.auto_increment = self.original.auto_increment,
+            texto => {
+                let valor: u64 = texto
+                    .parse()
+                    .map_err(|_| format!("auto-increment inválido: {texto}"))?;
+                if valor == 0 {
+                    return Err(String::from("auto-increment precisa ser maior que zero"));
+                }
+                depois.auto_increment = Some(valor);
+            }
+        }
+        Ok(TableAlter::between(&self.original, &depois))
+    }
+}
+
 pub struct App {
     pub screen: Screen,
     /// Conexões rápidas salvas, da mais recente para a mais antiga.
@@ -278,6 +458,8 @@ pub struct App {
     pub connection_edit: Option<ConnectionEdit>,
     /// Edição do banco selecionado, aberta pelo `e` nos bancos.
     pub database_edit: Option<DatabaseEdit>,
+    /// Edição da tabela selecionada, aberta pelo `e` nas tabelas.
+    pub table_edit: Option<TableEdit>,
     pub should_quit: bool,
     /// Seleção nas listas de conexões, bancos e tabelas. Só a do nível ativo
     /// aparece, mas cada uma guarda onde o usuário parou.
@@ -337,6 +519,7 @@ impl App {
             edit: None,
             connection_edit: None,
             database_edit: None,
+            table_edit: None,
             should_quit: false,
             connections_state: ListState::default(),
             databases_state: ListState::default(),
@@ -417,6 +600,14 @@ impl App {
             }
             Response::DatabaseUpdated { database } => {
                 self.status = Status::Notice(format!("banco {database} atualizado"));
+            }
+            Response::TableInfo(info) => {
+                self.status = Status::Ready;
+                self.table_edit = Some(TableEdit::new(info));
+            }
+            Response::TableUpdated { before, after } => {
+                self.renamed(&before, &after);
+                self.status = Status::Notice(format!("tabela {after} atualizada"));
             }
             Response::Database(database) => {
                 self.database = database;
@@ -694,6 +885,58 @@ impl App {
         }
         self.status = Status::Loading(format!("banco {database}"));
         self.db.request(Request::AlterDatabase { database, alter });
+    }
+
+    /// `e` nas tabelas: pede ao servidor as propriedades da tabela selecionada;
+    /// o pop-up abre quando a resposta chega.
+    pub(super) fn request_table_edit(&mut self) {
+        let Some(table) = self
+            .list_state
+            .selected()
+            .and_then(|index| self.tables.get(index))
+            .cloned()
+        else {
+            return;
+        };
+        self.status = Status::Loading(format!("tabela {table}"));
+        self.db.request(Request::TableInfo { table });
+    }
+
+    /// Aplica no servidor só o que mudou na tabela. Um valor inválido mantém o
+    /// pop-up aberto para a correção.
+    pub(super) fn save_table_edit(&mut self) {
+        let Some(edit) = self.table_edit.as_ref() else {
+            return;
+        };
+        let alter = match edit.alter() {
+            Ok(alter) => alter,
+            Err(message) => {
+                self.status = Status::Failed(message);
+                return;
+            }
+        };
+        let table = edit.original.name.clone();
+        self.table_edit = None;
+        if alter.is_empty() {
+            return;
+        }
+        self.status = Status::Loading(format!("tabela {table}"));
+        self.db.request(Request::AlterTable { table, alter });
+    }
+
+    /// A tabela pode ter sido renomeada: a lista e a tabela aberta acompanham.
+    fn renamed(&mut self, before: &str, after: &str) {
+        if self.current.as_deref() == Some(before) {
+            self.current = Some(after.to_owned());
+        }
+        let Some(index) = self.tables.iter().position(|table| table == before) else {
+            return;
+        };
+        self.tables[index] = after.to_owned();
+        // O servidor lista em ordem alfabética: a lista local segue igual.
+        self.tables.sort();
+        self.list_state
+            .select(self.tables.iter().position(|table| table == after));
     }
 
     /// Monta a URL do formulário e pede a conexão; erros ficam na tela.

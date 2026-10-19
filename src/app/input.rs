@@ -2,7 +2,7 @@
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use super::{App, Edit, Focus, Mode, Screen, Status};
+use super::{App, Edit, Focus, Mode, Picker, Screen, Status};
 use crate::config::Field;
 
 /// Quantas linhas PgUp/PgDn andam.
@@ -38,6 +38,10 @@ impl App {
         }
         if self.database_edit.is_some() {
             self.on_key_database_edit(key);
+            return;
+        }
+        if self.table_edit.is_some() {
+            self.on_key_table_edit(key);
             return;
         }
         match self.mode {
@@ -126,12 +130,12 @@ impl App {
     /// do campo (ou alterna o sim/não), `s` grava, `esc` descarta.
     fn on_key_database_edit(&mut self, key: KeyEvent) {
         // A lista aberta fica por cima do pop-up e recebe as teclas.
-        if self
-            .database_edit
-            .as_ref()
-            .is_some_and(|edit| edit.picker.is_some())
+        if let Some(edit) = self.database_edit.as_mut()
+            && edit.picker.is_some()
         {
-            self.on_key_picker(key);
+            if let Some((campo, item)) = picker_key(&mut edit.picker, key) {
+                edit.choose(campo, item);
+            }
             return;
         }
         match key.code {
@@ -148,37 +152,59 @@ impl App {
         }
     }
 
-    /// Lista de opções aberta: `j`/`k` andam, `enter` escolhe, `esc` volta.
-    fn on_key_picker(&mut self, key: KeyEvent) {
-        let Some(edit) = self.database_edit.as_mut() else {
+    /// Pop-up "Editar" da tabela: como no banco, `enter` abre a lista do campo
+    /// e `s` grava — só que, nos campos digitados (`tabela`, `comentário`,
+    /// `auto-increment`), `enter` grava e `s` é texto.
+    fn on_key_table_edit(&mut self, key: KeyEvent) {
+        // A lista aberta fica por cima do pop-up e recebe as teclas.
+        if let Some(edit) = self.table_edit.as_mut()
+            && edit.picker.is_some()
+        {
+            if let Some((campo, item)) = picker_key(&mut edit.picker, key) {
+                edit.choose(campo, item);
+            }
             return;
-        };
+        }
+        let dropdown = self
+            .table_edit
+            .as_ref()
+            .is_some_and(|edit| edit.field.dropdown());
         match key.code {
-            KeyCode::Esc => edit.picker = None,
-            KeyCode::Enter => {
-                let escolha = edit.picker.take().and_then(|picker| {
-                    picker
-                        .items
-                        .get(picker.index)
-                        .cloned()
-                        .map(|item| (picker.field, item))
-                });
-                if let Some((campo, item)) = escolha {
-                    edit.choose(campo, item);
+            KeyCode::Esc => self.table_edit = None,
+            KeyCode::Char('s') if dropdown => self.save_table_edit(),
+            KeyCode::Enter if dropdown => {
+                if let Some(edit) = self.table_edit.as_mut() {
+                    edit.activate();
                 }
             }
-            KeyCode::Down | KeyCode::Char('j') => {
-                if let Some(picker) = edit.picker.as_mut() {
-                    picker.index = step(Some(picker.index), 1, picker.items.len()).unwrap_or(0);
+            KeyCode::Enter => self.save_table_edit(),
+            KeyCode::Tab | KeyCode::Down => self.move_table_field(1),
+            KeyCode::BackTab | KeyCode::Up => self.move_table_field(-1),
+            KeyCode::Backspace => {
+                if let Some(edit) = self.table_edit.as_mut() {
+                    edit.backspace();
                 }
             }
-            KeyCode::Up | KeyCode::Char('k') => {
-                if let Some(picker) = edit.picker.as_mut() {
-                    picker.index = step(Some(picker.index), -1, picker.items.len()).unwrap_or(0);
+            KeyCode::Char(c)
+                if !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                if let Some(edit) = self.table_edit.as_mut() {
+                    edit.type_char(c);
                 }
             }
             _ => {}
         }
+    }
+
+    /// Anda entre os campos da tabela que o servidor informou.
+    fn move_table_field(&mut self, delta: isize) {
+        let Some(edit) = self.table_edit.as_mut() else {
+            return;
+        };
+        let campos = edit.fields();
+        edit.field = next(edit.field, delta, &campos);
     }
 
     /// Anda entre os campos do banco que o servidor informou.
@@ -215,9 +241,11 @@ impl App {
             KeyCode::Char('g') => self.select_edge(false),
             KeyCode::Char('G') => self.select_edge(true),
             KeyCode::Char('r') => self.reload(),
-            // `e` abre o pop-up de edição do nível: a conexão ou o banco.
+            // `e` abre o pop-up de edição do nível: a conexão, o banco ou a
+            // tabela.
             KeyCode::Char('e') if self.focus == Focus::Connections => self.open_connection_edit(),
             KeyCode::Char('e') if self.focus == Focus::Databases => self.request_database_edit(),
+            KeyCode::Char('e') if self.focus == Focus::Tables => self.request_table_edit(),
             KeyCode::Enter => match self.focus {
                 Focus::Connections => self.open_selected_connection(),
                 Focus::Databases => self.use_selected_database(),
@@ -488,4 +516,35 @@ pub(super) fn step(current: Option<usize>, delta: isize, len: usize) -> Option<u
 pub(super) fn next<T: Copy + PartialEq>(atual: T, delta: isize, itens: &[T]) -> T {
     let indice = itens.iter().position(|item| *item == atual).unwrap_or(0);
     itens[(indice as isize + delta).rem_euclid(itens.len() as isize) as usize]
+}
+
+/// Lista de opções aberta sobre um pop-up: `j`/`k` andam, `enter` escolhe e
+/// `esc` volta. Devolve o campo e o item quando a escolha foi confirmada.
+fn picker_key<F: Copy>(picker: &mut Option<Picker<F>>, key: KeyEvent) -> Option<(F, String)> {
+    match key.code {
+        KeyCode::Esc => {
+            *picker = None;
+            None
+        }
+        KeyCode::Enter => picker.take().and_then(|picker| {
+            picker
+                .items
+                .get(picker.index)
+                .cloned()
+                .map(|item| (picker.field, item))
+        }),
+        KeyCode::Down | KeyCode::Char('j') => {
+            if let Some(picker) = picker.as_mut() {
+                picker.index = step(Some(picker.index), 1, picker.items.len()).unwrap_or(0);
+            }
+            None
+        }
+        KeyCode::Up | KeyCode::Char('k') => {
+            if let Some(picker) = picker.as_mut() {
+                picker.index = step(Some(picker.index), -1, picker.items.len()).unwrap_or(0);
+            }
+            None
+        }
+        _ => None,
+    }
 }

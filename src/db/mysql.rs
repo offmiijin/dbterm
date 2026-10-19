@@ -5,7 +5,8 @@ use mysql::prelude::Queryable;
 use mysql::{Conn, Value};
 
 use super::{
-    Charset, Collation, ColumnKind, DatabaseAlter, DatabaseInfo, TableData, identificador,
+    Charset, Collation, ColumnKind, DatabaseAlter, DatabaseInfo, TableAlter, TableData, TableInfo,
+    identificador,
 };
 
 pub(super) fn tables(conn: &mut Conn) -> mysql::Result<Vec<String>> {
@@ -154,6 +155,127 @@ fn nome(valor: &str, tipo: &str) -> Result<String, String> {
     } else {
         Err(format!("{tipo} inválido: {valor}"))
     }
+}
+
+/// Propriedades da tabela: engine, formato de linha, auto-increment, comentário
+/// e os padrões de texto, com o catálogo de engines, charsets e collations.
+pub(super) fn table_info(conn: &mut Conn, table: &str) -> Result<TableInfo, String> {
+    let linhas = conn
+        .exec::<(
+            Option<String>,
+            Option<String>,
+            Option<u64>,
+            String,
+            Option<String>,
+            u64,
+        ), _, _>(
+            "SELECT engine, row_format, auto_increment, table_comment, table_collation, \
+             CAST(COALESCE(data_length + index_length, 0) AS UNSIGNED) \
+             FROM information_schema.tables \
+             WHERE table_schema = DATABASE() AND table_name = ?",
+            (table,),
+        )
+        .map_err(|err| err.to_string())?;
+    let Some((engine, row_format, auto_increment, comment, collation, size_bytes)) =
+        linhas.into_iter().next()
+    else {
+        return Err(format!("tabela não encontrada: {table}"));
+    };
+    let collation = collation.unwrap_or_default();
+    let collations = collations(conn).map_err(|err| err.to_string())?;
+    // A collation da tabela diz a que charset os padrões dela pertencem; sem
+    // essa informação (tabela sem colunas de texto), o campo fica vazio.
+    let charset = collations
+        .iter()
+        .find(|candidata| candidata.name == collation)
+        .map(|candidata| candidata.charset.clone())
+        .unwrap_or_default();
+    Ok(TableInfo {
+        name: table.to_owned(),
+        comment,
+        engine: engine.unwrap_or_default(),
+        row_format: row_format.unwrap_or_default(),
+        auto_increment,
+        charset,
+        collation,
+        size_bytes,
+        engines: engines(conn).map_err(|err| err.to_string())?,
+        charsets: charsets(conn).map_err(|err| err.to_string())?,
+        collations,
+    })
+}
+
+/// Engines que o servidor aceita; as indisponíveis (`NO`, `DISABLED`) ficam de
+/// fora da lista.
+fn engines(conn: &mut Conn) -> mysql::Result<Vec<String>> {
+    conn.query(
+        "SELECT engine FROM information_schema.engines \
+         WHERE support IN ('YES', 'DEFAULT') ORDER BY engine",
+    )
+}
+
+/// Aplica na tabela as opções que mudaram e devolve o nome final: o novo, no
+/// caso de rename.
+pub(super) fn alter_table(
+    conn: &mut Conn,
+    table: &str,
+    alter: &TableAlter,
+) -> Result<String, String> {
+    let Some((sql, params)) = alter_table_sql(table, alter)? else {
+        return Ok(table.to_owned());
+    };
+    let params: Vec<Value> = params.into_iter().map(Value::from).collect();
+    conn.exec_drop(sql, params).map_err(|err| err.to_string())?;
+    Ok(alter.rename.clone().unwrap_or_else(|| table.to_owned()))
+}
+
+/// Monta o `ALTER TABLE` só com o que mudou; sem mudança, não há query.
+///
+/// Identificadores (nome novo, engine, formato, charset, collation) não aceitam
+/// placeholder e entram no texto do DDL: o nome novo vai escapado com crase e o
+/// resto passa por [`identificador`]. O comentário vai como parâmetro `?`.
+fn alter_table_sql(
+    table: &str,
+    alter: &TableAlter,
+) -> Result<Option<(String, Vec<String>)>, String> {
+    let mut opcoes = Vec::new();
+    let mut params = Vec::new();
+    if let Some(rename) = &alter.rename {
+        let rename = rename.trim();
+        if rename.is_empty() {
+            return Err(String::from("informe o nome da tabela"));
+        }
+        opcoes.push(format!("RENAME TO `{}`", quote(rename)));
+    }
+    if let Some(comment) = &alter.comment {
+        opcoes.push(String::from("COMMENT = ?"));
+        params.push(comment.clone());
+    }
+    if let Some(engine) = &alter.engine {
+        opcoes.push(format!("ENGINE = {}", nome(engine, "engine")?));
+    }
+    if let Some(row_format) = &alter.row_format {
+        opcoes.push(format!(
+            "ROW_FORMAT = {}",
+            nome(row_format, "formato de linha")?
+        ));
+    }
+    if let Some(auto_increment) = alter.auto_increment {
+        opcoes.push(format!("AUTO_INCREMENT = {auto_increment}"));
+    }
+    if let Some(charset) = &alter.charset {
+        opcoes.push(format!("CHARACTER SET = {}", nome(charset, "charset")?));
+    }
+    if let Some(collation) = &alter.collation {
+        opcoes.push(format!("COLLATE = {}", nome(collation, "collation")?));
+    }
+    if opcoes.is_empty() {
+        return Ok(None);
+    }
+    Ok(Some((
+        format!("ALTER TABLE `{}` {}", quote(table), opcoes.join(", ")),
+        params,
+    )))
 }
 
 /// Troca o banco padrão da conexão, sem reabrir a sessão.
@@ -385,6 +507,64 @@ mod tests {
             ..DatabaseAlter::default()
         };
         assert!(alter_database_sql("app", &vazio).is_err());
+    }
+
+    #[test]
+    fn monta_alter_table_com_as_opcoes_alteradas() {
+        let alter = TableAlter {
+            rename: Some(String::from("clientes")),
+            comment: Some(String::from("cadastro")),
+            engine: Some(String::from("InnoDB")),
+            row_format: Some(String::from("Dynamic")),
+            auto_increment: Some(2048),
+            charset: Some(String::from("utf8mb4")),
+            collation: Some(String::from("utf8mb4_bin")),
+        };
+
+        let (sql, params) = alter_table_sql("users", &alter).unwrap().unwrap();
+
+        assert_eq!(
+            sql,
+            "ALTER TABLE `users` RENAME TO `clientes`, COMMENT = ?, ENGINE = InnoDB, \
+             ROW_FORMAT = Dynamic, AUTO_INCREMENT = 2048, CHARACTER SET = utf8mb4, \
+             COLLATE = utf8mb4_bin"
+        );
+        assert_eq!(params, ["cadastro"], "o comentário vai como parâmetro");
+    }
+
+    #[test]
+    fn alter_table_sem_mudanca_nao_vira_query() {
+        assert!(
+            alter_table_sql("users", &TableAlter::default())
+                .unwrap()
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn alter_table_escapa_crases_dos_nomes() {
+        let alter = TableAlter {
+            rename: Some(String::from("we`ird")),
+            ..TableAlter::default()
+        };
+        let (sql, params) = alter_table_sql("outra`tabela", &alter).unwrap().unwrap();
+        assert_eq!(sql, "ALTER TABLE `outra``tabela` RENAME TO `we``ird`");
+        assert!(params.is_empty());
+    }
+
+    #[test]
+    fn alter_table_recusa_rename_vazio_e_identificador_estranho() {
+        let vazio = TableAlter {
+            rename: Some(String::from("  ")),
+            ..TableAlter::default()
+        };
+        assert!(alter_table_sql("users", &vazio).is_err());
+
+        let engine = TableAlter {
+            engine: Some(String::from("InnoDB; DROP TABLE users")),
+            ..TableAlter::default()
+        };
+        assert!(alter_table_sql("users", &engine).is_err());
     }
 
     #[test]
