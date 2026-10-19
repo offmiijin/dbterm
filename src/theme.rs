@@ -71,6 +71,21 @@ pub fn cell_selected() -> Style {
     Style::new().fg(TEXT).bg(SURFACE1)
 }
 
+/// Fundo do campo em edição.
+pub fn field() -> Style {
+    Style::new().fg(TEXT).bg(SURFACE0)
+}
+
+/// Literal de texto (`'...'`) no preview de SQL.
+pub fn string() -> Style {
+    Style::new().fg(GREEN)
+}
+
+/// Literal numérico no preview de SQL.
+pub fn number() -> Style {
+    Style::new().fg(PEACH)
+}
+
 /// Borda de painel, acesa quando o painel tem o foco.
 pub fn border(focused: bool) -> Style {
     Style::new().fg(if focused { MAUVE } else { SURFACE1 })
@@ -79,6 +94,11 @@ pub fn border(focused: bool) -> Style {
 /// Avisos (conectando, carregando).
 pub fn warning() -> Style {
     Style::new().fg(YELLOW)
+}
+
+/// Ações irreversíveis.
+pub fn danger() -> Style {
+    Style::new().fg(RED)
 }
 
 /// Erros.

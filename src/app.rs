@@ -323,14 +323,7 @@ impl App {
         let Some(column) = data.columns.get(edit.column).cloned() else {
             return;
         };
-        let Some(row) = data.rows.get(edit.row) else {
-            return;
-        };
-        let key: Vec<(String, String)> = data
-            .primary_key
-            .iter()
-            .filter_map(|&index| Some((data.columns.get(index)?.clone(), row.get(index)?.clone())))
-            .collect();
+        let key = data.key_of(edit.row);
         if key.is_empty() {
             self.status = Status::Failed(String::from("tabela sem chave primária"));
             return;
@@ -418,6 +411,7 @@ fn step(current: Option<usize>, delta: isize, len: usize) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::db::ColumnKind;
 
     fn app() -> App {
         App::new("mysql://user@localhost/app")
@@ -430,6 +424,7 @@ mod tests {
         app.current = Some(String::from("users"));
         app.data = Some(TableData {
             columns: vec![String::from("id"), String::from("name")],
+            kinds: vec![ColumnKind::Number, ColumnKind::Text],
             rows: vec![
                 vec![String::from("1"), String::from("ana")],
                 vec![String::from("2"), String::from("bia")],
@@ -478,6 +473,7 @@ mod tests {
             table: String::from("users"),
             data: TableData {
                 columns: vec![String::from("id")],
+                kinds: vec![ColumnKind::Number],
                 rows: vec![vec![String::from("1")]],
                 primary_key: vec![0],
             },
@@ -596,6 +592,7 @@ mod tests {
             table: String::from("users"),
             data: TableData {
                 columns: vec![String::from("id"), String::from("name")],
+                kinds: vec![ColumnKind::Number, ColumnKind::Text],
                 rows: vec![
                     vec![String::from("1"), String::from("ana")],
                     vec![String::from("2"), String::from("bia")],
@@ -650,6 +647,7 @@ mod tests {
             table: String::from("orders"),
             data: TableData {
                 columns: vec![String::from("id")],
+                kinds: vec![ColumnKind::Number],
                 rows: vec![vec![String::from("7")]],
                 primary_key: vec![0],
             },

@@ -6,19 +6,78 @@
 use std::sync::mpsc::{self, Receiver, Sender, TryRecvError};
 use std::thread;
 
+use mysql::consts::ColumnType;
 use mysql::prelude::Queryable;
 use mysql::{Conn, Opts, Value};
 
 /// Quantas linhas de cada tabela buscamos por página (MVP: sem paginação).
 pub const ROW_LIMIT: usize = 200;
 
+/// Tipo da coluna reduzido ao que a UI precisa: número ou texto.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ColumnKind {
+    /// Inteiro, decimal ou ponto flutuante: literal sem aspas.
+    Number,
+    /// Todo o resto (texto, data, blob...): literal entre aspas.
+    Text,
+}
+
+/// Papel de um pedaço da query de preview, para a UI escolher a cor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SqlPart {
+    /// Declaração: `UPDATE`, `SET`, `WHERE`.
+    Declaration,
+    /// Operador, pontuação e nomes de tabela/coluna.
+    Plain,
+    /// Literal de texto, já entre aspas.
+    Text,
+    /// Literal numérico, sem aspas.
+    Number,
+    /// `NULL`.
+    Null,
+}
+
 /// Uma página de dados pronta para desenhar: tudo já virou texto.
 #[derive(Debug)]
 pub struct TableData {
     pub columns: Vec<String>,
+    /// Tipo de cada coluna, na mesma ordem de [`TableData::columns`].
+    pub kinds: Vec<ColumnKind>,
     pub rows: Vec<Vec<String>>,
     /// Índices das colunas da chave primária; vazio quando a tabela não tem PK.
     pub primary_key: Vec<usize>,
+}
+
+impl TableData {
+    /// Índice, nome e valor atual de cada coluna da PK da linha `row`.
+    fn key_columns(&self, row: usize) -> Vec<(usize, &str, &str)> {
+        let Some(row) = self.rows.get(row) else {
+            return Vec::new();
+        };
+        self.primary_key
+            .iter()
+            .filter_map(|&index| {
+                Some((
+                    index,
+                    self.columns.get(index)?.as_str(),
+                    row.get(index)?.as_str(),
+                ))
+            })
+            .collect()
+    }
+
+    /// Nomes e valores atuais da chave primária da linha `row`, na ordem da PK.
+    pub fn key_of(&self, row: usize) -> Vec<(String, String)> {
+        self.key_columns(row)
+            .into_iter()
+            .map(|(_, name, value)| (name.to_owned(), value.to_owned()))
+            .collect()
+    }
+
+    /// Tipo da coluna `index` (texto quando a página não trouxe o tipo).
+    fn kind(&self, index: usize) -> ColumnKind {
+        self.kinds.get(index).copied().unwrap_or(ColumnKind::Text)
+    }
 }
 
 #[derive(Debug)]
@@ -153,6 +212,11 @@ fn rows(conn: &mut Conn, table: &str) -> mysql::Result<TableData> {
     );
     let mut result = conn.query_iter(sql)?;
     let columns = result.columns();
+    let kinds: Vec<ColumnKind> = columns
+        .as_ref()
+        .iter()
+        .map(|column| kind_of(column.column_type()))
+        .collect();
     let columns: Vec<String> = columns
         .as_ref()
         .iter()
@@ -170,9 +234,19 @@ fn rows(conn: &mut Conn, table: &str) -> mysql::Result<TableData> {
     let primary_key = primary_key(conn, table, &columns)?;
     Ok(TableData {
         columns,
+        kinds,
         rows,
         primary_key,
     })
+}
+
+/// Número ou texto, a partir do tipo que veio no result set.
+fn kind_of(column_type: ColumnType) -> ColumnKind {
+    if column_type.is_numeric_type() {
+        ColumnKind::Number
+    } else {
+        ColumnKind::Text
+    }
 }
 
 /// Índices das colunas que formam a chave primária da tabela.
@@ -221,6 +295,50 @@ fn update_sql(table: &str, column: &str, key: &[(String, String)]) -> String {
     )
 }
 
+/// `UPDATE` da edição em pedaços classificados: as linhas do padrão
+/// `UPDATE` / `SET` / `WHERE ...;`, com os valores no lugar dos `?`, sem crases
+/// nos identificadores e cada literal marcado pelo tipo da coluna.
+pub fn update_preview(
+    table: &str,
+    data: &TableData,
+    row: usize,
+    column: usize,
+    value: Option<&str>,
+) -> Vec<Vec<(String, SqlPart)>> {
+    let Some(name) = data.columns.get(column) else {
+        return Vec::new();
+    };
+    let update = vec![
+        (String::from("UPDATE"), SqlPart::Declaration),
+        (format!(" {table}"), SqlPart::Plain),
+    ];
+    let set = vec![
+        (String::from("SET"), SqlPart::Declaration),
+        (format!(" {name} = "), SqlPart::Plain),
+        literal(value, data.kind(column)),
+    ];
+
+    let mut where_ = vec![(String::from("WHERE"), SqlPart::Declaration)];
+    for (index, name, value) in data.key_columns(row) {
+        // A primeira coluna da PK ganha um espaço; as demais, um `AND`.
+        let separator = if where_.len() == 1 { " " } else { " AND " };
+        where_.push((format!("{separator}{name} = "), SqlPart::Plain));
+        where_.push(literal(Some(value), data.kind(index)));
+    }
+    where_.push((String::from(";"), SqlPart::Plain));
+
+    vec![update, set, where_]
+}
+
+/// Um literal do preview, no formato do tipo da coluna.
+fn literal(value: Option<&str>, kind: ColumnKind) -> (String, SqlPart) {
+    match value {
+        None => (String::from("NULL"), SqlPart::Null),
+        Some(value) if kind == ColumnKind::Number => (value.to_owned(), SqlPart::Number),
+        Some(value) => (format!("'{}'", value.replace('\'', "''")), SqlPart::Text),
+    }
+}
+
 /// Escapa um identificador para ir entre crases.
 fn quote(identifier: &str) -> String {
     identifier.replace('`', "``")
@@ -254,6 +372,20 @@ fn cell(value: &Value) -> String {
 mod tests {
     use super::*;
 
+    /// A query de preview sem as marcações: o texto que aparece na tela.
+    fn texto(linhas: &[Vec<(String, SqlPart)>]) -> String {
+        linhas
+            .iter()
+            .map(|linha| {
+                linha
+                    .iter()
+                    .map(|(texto, _)| texto.as_str())
+                    .collect::<String>()
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    }
+
     #[test]
     fn monta_update_parametrizado() {
         let chave = vec![(String::from("id"), String::from("1"))];
@@ -282,6 +414,89 @@ mod tests {
             update_sql("we`ird", "na`me", &chave),
             "UPDATE `we``ird` SET `na``me` = ? WHERE `i``d` = ?"
         );
+    }
+
+    #[test]
+    fn rascunho_do_update_mostra_valores_condicao_e_escapes() {
+        let data = TableData {
+            columns: vec![String::from("id"), String::from("name")],
+            kinds: vec![ColumnKind::Number, ColumnKind::Text],
+            rows: vec![vec![String::from("1"), String::from("ana")]],
+            primary_key: vec![0],
+        };
+        assert_eq!(
+            texto(&update_preview("users", &data, 0, 1, Some("bia"))),
+            "UPDATE users\nSET name = 'bia'\nWHERE id = 1;"
+        );
+        assert_eq!(
+            texto(&update_preview("users", &data, 0, 1, None)),
+            "UPDATE users\nSET name = NULL\nWHERE id = 1;"
+        );
+        assert_eq!(
+            texto(&update_preview("t", &data, 0, 1, Some("d'água"))),
+            "UPDATE t\nSET name = 'd''água'\nWHERE id = 1;"
+        );
+        // Linha fora da página: sem chave, a condição fica vazia.
+        assert!(data.key_of(9).is_empty());
+    }
+
+    #[test]
+    fn literais_do_preview_seguem_o_tipo_da_coluna() {
+        let data = TableData {
+            columns: vec![
+                String::from("id"),
+                String::from("name"),
+                String::from("price"),
+            ],
+            kinds: vec![ColumnKind::Number, ColumnKind::Text, ColumnKind::Number],
+            rows: vec![vec![
+                String::from("7"),
+                String::from("teclado"),
+                String::from("10.5"),
+            ]],
+            primary_key: vec![0],
+        };
+        let preview = update_preview("products", &data, 0, 1, Some("Teclado mecânico"));
+        assert_eq!(
+            preview[1],
+            vec![
+                (String::from("SET"), SqlPart::Declaration),
+                (String::from(" name = "), SqlPart::Plain),
+                (String::from("'Teclado mecânico'"), SqlPart::Text),
+            ]
+        );
+
+        let numerico = update_preview("products", &data, 0, 2, Some("12.9"));
+        assert_eq!(
+            numerico[1],
+            vec![
+                (String::from("SET"), SqlPart::Declaration),
+                (String::from(" price = "), SqlPart::Plain),
+                (String::from("12.9"), SqlPart::Number),
+            ]
+        );
+        // A chave primária numérica também sai sem aspas.
+        assert_eq!(
+            numerico[2],
+            vec![
+                (String::from("WHERE"), SqlPart::Declaration),
+                (String::from(" id = "), SqlPart::Plain),
+                (String::from("7"), SqlPart::Number),
+                (String::from(";"), SqlPart::Plain),
+            ]
+        );
+    }
+
+    #[test]
+    fn tipo_da_coluna_vira_numero_ou_texto() {
+        assert_eq!(kind_of(ColumnType::MYSQL_TYPE_LONG), ColumnKind::Number);
+        assert_eq!(kind_of(ColumnType::MYSQL_TYPE_FLOAT), ColumnKind::Number);
+        assert_eq!(
+            kind_of(ColumnType::MYSQL_TYPE_NEWDECIMAL),
+            ColumnKind::Number
+        );
+        assert_eq!(kind_of(ColumnType::MYSQL_TYPE_VAR_STRING), ColumnKind::Text);
+        assert_eq!(kind_of(ColumnType::MYSQL_TYPE_DATETIME), ColumnKind::Text);
     }
 
     /// Não precisa de servidor: a porta 1 recusa na hora e o erro volta
