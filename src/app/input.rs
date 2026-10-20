@@ -2,7 +2,8 @@
 
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
-use super::{App, Edit, Focus, Mode, Picker, Screen, Status};
+use super::App;
+use super::state::{Edit, Focus, Mode, Picker, Screen, Status};
 use crate::config::Field;
 
 /// Quantas linhas PgUp/PgDn andam.

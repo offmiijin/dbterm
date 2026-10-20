@@ -1,9 +1,12 @@
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::input::{PAGE, step};
+use super::state::{DatabaseEdit, TableEdit};
 use super::*;
-use crate::config::Field;
-use crate::db::{Charset, Collation, ColumnKind};
+use crate::config::{DatabaseField, Field, TableField};
+use crate::db::{
+    Charset, Collation, ColumnKind, DatabaseInfo, Response, ROW_LIMIT, TableInfo,
+};
 use crate::history::{History, Saved};
 
 fn app() -> App {
