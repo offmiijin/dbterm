@@ -1,8 +1,9 @@
 //! Pop-up "Comandos": o comando master aberto com `ctrl+p`.
 //!
-//! A primeira aba é a SQL, que filtra a grade com SQL livre (ex.:
-//! `;select COUNT(*) from users`). O `;` inicial marca o modo SQL e já vem
-//! preenchido ao abrir; o `ctrl+enter` executa.
+//! O prefixo do texto seleciona o comando: `;` é SQL, que filtra a grade com
+//! SQL livre (ex.: `;select COUNT(*) from users`), e `#` busca uma tabela
+//! pelo nome (ex.: `#products`), com a caixa de completar. O `enter`
+//! executa e o `tab` troca de aba levando o texto junto.
 
 use ratatui::Frame;
 use ratatui::layout::Rect;
@@ -15,25 +16,31 @@ use crate::view::largura;
 
 /// Teclas do comando master, como saem no rodapé.
 pub(crate) fn commands_keys() -> &'static str {
-    "ctrl+enter executar · esc fechar"
+    "ctrl+enter executar · tab aba · esc fechar"
 }
 
-pub(crate) fn draw_commands(frame: &mut Frame, area: Rect, commands: Option<&Commands>) {
+pub(crate) fn draw_commands(
+    frame: &mut Frame,
+    area: Rect,
+    commands: Option<&Commands>,
+    tables: &[String],
+) {
     let Some(commands) = commands else {
         return;
     };
     let conteudo = popup_content_width(area);
     let mut lines = vec![abas(commands.tab)];
     lines.push(Line::from(popup_rule(area)).style(theme::muted()));
-    lines.push(linha_sql(&commands.input, conteudo));
+    lines.push(linha_comando(&commands.input, conteudo));
+    lines.extend(linhas_sugestoes(commands, tables));
     lines.push(Line::from(popup_rule(area)).style(theme::muted()));
     lines.push(linha_acoes());
     // O ícone (Nerd Font) acompanha o título dos pop-ups.
     popup(frame, area, "\u{f120} Comandos", lines);
 }
 
-/// Linha de abas: a ativa em destaque, as outras apagadas. Cada aba mostra a
-/// tecla que a abre direto (`SQL ;`).
+/// Linha de abas: a ativa em destaque, as outras apagadas. Cada aba mostra o
+/// prefixo que a seleciona (`SQL ;`, `Table #`).
 fn abas(ativa: CommandTab) -> Line<'static> {
     let mut spans = Vec::new();
     for (indice, aba) in CommandTab::ALL.iter().enumerate() {
@@ -50,8 +57,8 @@ fn abas(ativa: CommandTab) -> Line<'static> {
     Line::from(spans)
 }
 
-/// A linha do SQL, com o cursor no fim e a cauda visível quando não cabe.
-fn linha_sql(input: &str, comprimento: usize) -> Line<'static> {
+/// A linha do comando, com o cursor no fim e a cauda visível quando não cabe.
+fn linha_comando(input: &str, comprimento: usize) -> Line<'static> {
     let mut valor = format!("{input}▏");
     if largura(&valor) > comprimento {
         valor = cauda(&valor, comprimento);
@@ -59,6 +66,30 @@ fn linha_sql(input: &str, comprimento: usize) -> Line<'static> {
         valor.push_str(&" ".repeat(comprimento - largura(&valor)));
     }
     Line::from(valor).style(theme::field())
+}
+
+/// A caixa de completar da busca de tabela: as que combinam com o que foi
+/// digitado, com a primeira (`enter` abre ela) em destaque.
+fn linhas_sugestoes(commands: &Commands, tables: &[String]) -> Vec<Line<'static>> {
+    if commands.tab != CommandTab::Table {
+        return Vec::new();
+    }
+    let sugestoes = commands.suggestions(tables);
+    if sugestoes.is_empty() {
+        return vec![Line::from("nenhuma tabela encontrada").style(theme::muted())];
+    }
+    sugestoes
+        .iter()
+        .enumerate()
+        .map(|(posicao, &indice)| {
+            let nome = tables.get(indice).cloned().unwrap_or_default();
+            if posicao == 0 {
+                Line::from(Span::styled(format!("❯ {nome}"), theme::selected()))
+            } else {
+                Line::from(format!("  {nome}"))
+            }
+        })
+        .collect()
 }
 
 /// Fim do texto que cabe em `limite`, marcado com `…` na frente.
@@ -74,11 +105,14 @@ fn cauda(valor: &str, limite: usize) -> String {
     String::from("…")
 }
 
-/// Ações do comando master: `ctrl+enter` executa e `esc` fecha.
+/// Ações do comando master: `ctrl+enter` executa, `tab` troca de aba e `esc`
+/// fecha.
 fn linha_acoes() -> Line<'static> {
     Line::from(vec![
         Span::styled("ctrl+enter", theme::accent()),
         Span::styled(" executar · ", theme::text()),
+        Span::styled("tab", theme::accent()),
+        Span::styled(" aba · ", theme::text()),
         Span::styled("esc", theme::accent()),
         Span::styled(" fechar", theme::text()),
     ])

@@ -72,8 +72,9 @@ pub struct App {
     pub table_edit: Option<TableEdit>,
     /// Comando master, aberto com `ctrl+p`. A primeira aba é a SQL.
     pub commands: Option<Commands>,
-    /// Último comando do pop-up: reabrir o `SQL ;` mostra o texto de volta.
-    pub sql_buffer: String,
+    /// Último comando do pop-up: reabrir mostra o texto de volta, na aba do
+    /// prefixo (`;` é SQL, `#` é busca de tabela).
+    pub commands_buffer: String,
     pub should_quit: bool,
     /// Seleção nas listas de conexões, bancos e tabelas. Só a do nível ativo
     /// aparece, mas cada uma guarda onde o usuário parou.
@@ -135,7 +136,7 @@ impl App {
             database_edit: None,
             table_edit: None,
             commands: None,
-            sql_buffer: String::new(),
+            commands_buffer: String::new(),
             should_quit: false,
             connections_state: ListState::default(),
             databases_state: ListState::default(),

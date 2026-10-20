@@ -261,7 +261,7 @@ impl App {
         match key.code {
             KeyCode::Esc => {
                 if let Some(commands) = self.commands.take() {
-                    self.sql_buffer = commands.input;
+                    self.commands_buffer = commands.input;
                 }
             }
             KeyCode::Tab => self.move_commands_tab(1),
@@ -291,12 +291,14 @@ impl App {
             && matches!(self.focus, Focus::Tables | Focus::Data)
     }
 
-    /// Anda entre as abas do comando master, dando a volta nas pontas.
+    /// Anda entre as abas do comando master, dando a volta nas pontas e
+    /// levando o texto junto (só o prefixo troca).
     fn move_commands_tab(&mut self, delta: isize) {
         let Some(commands) = self.commands.as_mut() else {
             return;
         };
         commands.tab = next(commands.tab, delta, &CommandTab::ALL);
+        commands.apply_prefix();
     }
 
     fn on_key_rows(&mut self, key: KeyEvent) {

@@ -68,37 +68,53 @@ pub enum Mode {
     ConfirmQuit,
 }
 
-/// Aba do pop-up "Comandos", aberto com `ctrl+p`.
+/// Aba do pop-up "Comandos", aberto com `ctrl+p`. O prefixo do texto
+/// seleciona o comando: `;` é SQL e `#` é busca de tabela.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CommandTab {
     /// Filtra a grade com SQL livre (ex.: `;select COUNT(*) from users`).
     Sql,
+    /// Busca uma tabela pelo nome (ex.: `#products`).
+    Table,
 }
 
 impl CommandTab {
     /// Todas as abas, na ordem em que aparecem no pop-up.
-    pub const ALL: [CommandTab; 1] = [CommandTab::Sql];
+    pub const ALL: [CommandTab; 2] = [CommandTab::Sql, CommandTab::Table];
 
     /// Rótulo mostrado na linha de abas.
     pub fn titulo(self) -> &'static str {
         match self {
             CommandTab::Sql => "SQL",
+            CommandTab::Table => "Table",
         }
     }
 
-    /// Prefixo que marca o comando no texto do pop-up: o `;` seleciona o SQL.
-    /// Cada comando futuro tem o seu.
+    /// Prefixo que marca o comando no texto do pop-up: o `;` seleciona o SQL
+    /// e o `#`, a busca de tabela.
     pub fn atalho(self) -> char {
         match self {
             CommandTab::Sql => ';',
+            CommandTab::Table => '#',
         }
+    }
+
+    /// A aba que o prefixo seleciona, se for o de algum comando.
+    pub fn from_prefix(prefixo: char) -> Option<CommandTab> {
+        Self::ALL
+            .iter()
+            .find(|aba| aba.atalho() == prefixo)
+            .copied()
     }
 }
 
+/// Quantas tabelas a caixa de completar mostra.
+const MAX_SUGESTOES: usize = 6;
+
 /// Comando master em edição: a aba ativa e o texto digitado.
 ///
-/// Na aba SQL o texto começa com `;`, que marca o modo SQL e não faz parte
-/// da consulta enviada ao servidor.
+/// O primeiro caractere seleciona o comando (`;` é SQL, `#` é busca de
+/// tabela) e não faz parte do que é executado.
 #[derive(Debug)]
 pub struct Commands {
     pub tab: CommandTab,
@@ -118,16 +134,40 @@ impl Commands {
         Self::with_input(String::from(";"))
     }
 
-    /// Reabre o pop-up com o texto do buffer (o último comando executado).
+    /// Reabre o pop-up com o texto do buffer (o último comando executado). A
+    /// aba acompanha o prefixo do texto.
     pub fn with_input(input: String) -> Self {
         let input = if input.is_empty() {
             String::from(";")
         } else {
             input
         };
-        Self {
-            tab: CommandTab::Sql,
-            input,
+        let tab = input
+            .chars()
+            .next()
+            .and_then(CommandTab::from_prefix)
+            .unwrap_or(CommandTab::Sql);
+        Self { tab, input }
+    }
+
+    /// Reescreve o prefixo do texto para o da aba ativa, levando o resto
+    /// junto: é o que o `tab` faz ao trocar de aba.
+    pub fn apply_prefix(&mut self) {
+        let prefixo = self.tab.atalho();
+        let resto = match self.input.chars().next() {
+            Some(primeiro) if CommandTab::from_prefix(primeiro).is_some() => {
+                self.input[primeiro.len_utf8()..].to_owned()
+            }
+            _ => self.input.clone(),
+        };
+        self.input = format!("{prefixo}{resto}");
+    }
+
+    /// A aba que o prefixo do texto seleciona, mantendo a atual quando o
+    /// texto está vazio ou sem prefixo de comando.
+    fn sync_tab(&mut self) {
+        if let Some(tab) = self.input.chars().next().and_then(CommandTab::from_prefix) {
+            self.tab = tab;
         }
     }
 
@@ -141,16 +181,42 @@ impl Commands {
             .to_owned()
     }
 
-    /// Digita no fim da linha, onde fica o cursor.
-    pub fn type_char(&mut self, caractere: char) {
-        self.input.push(caractere);
+    /// A busca de tabela a executar: o texto sem o `#` inicial e sem espaços
+    /// nas pontas. Vazio quando só há o `#`.
+    pub fn table_query(&self) -> String {
+        self.input
+            .strip_prefix('#')
+            .unwrap_or(self.input.as_str())
+            .trim()
+            .to_owned()
     }
 
-    /// Apaga o último caractere, sem tirar o `;` inicial da aba SQL.
-    pub fn backspace(&mut self) {
-        if self.input.len() > 1 {
-            self.input.pop();
+    /// Índices das tabelas que completam a busca, na ordem da lista. Sem o
+    /// `#`, a caixa mostra o começo da lista.
+    pub fn suggestions(&self, tables: &[String]) -> Vec<usize> {
+        if self.tab != CommandTab::Table {
+            return Vec::new();
         }
+        let busca = self.table_query().to_lowercase();
+        tables
+            .iter()
+            .enumerate()
+            .filter(|(_, tabela)| tabela.to_lowercase().contains(&busca))
+            .take(MAX_SUGESTOES)
+            .map(|(indice, _)| indice)
+            .collect()
+    }
+
+    /// Digita no fim da linha, onde fica o cursor; o prefixo troca a aba.
+    pub fn type_char(&mut self, caractere: char) {
+        self.input.push(caractere);
+        self.sync_tab();
+    }
+
+    /// Apaga o último caractere, até esvaziar a linha para trocar de comando.
+    pub fn backspace(&mut self) {
+        self.input.pop();
+        self.sync_tab();
     }
 }
 

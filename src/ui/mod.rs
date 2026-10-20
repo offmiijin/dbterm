@@ -187,7 +187,7 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
     popup::draw_connection_edit(frame, frame.area(), connection_edit.as_ref());
     popup::draw_database_edit(frame, frame.area(), database_edit.as_ref());
     popup::draw_table_edit(frame, frame.area(), table_edit.as_ref());
-    popup::draw_commands(frame, frame.area(), commands.as_ref());
+    popup::draw_commands(frame, frame.area(), commands.as_ref(), tables);
 }
 
 fn draw_header(frame: &mut Frame, area: Rect, server: &str, database: &str, table: Option<&str>) {

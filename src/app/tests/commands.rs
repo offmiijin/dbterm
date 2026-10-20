@@ -36,7 +36,7 @@ fn reabrir_volta_com_o_ponto_e_virgula() {
 }
 
 #[test]
-fn digitacao_entra_no_fim_e_backspace_preserva_o_prefixo() {
+fn digitacao_entra_no_fim_e_apagar_tudo_libera_a_troca() {
     let mut app = app_navegando();
     app.on_key(ctrl('p'));
     for caractere in "select 1".chars() {
@@ -47,11 +47,59 @@ fn digitacao_entra_no_fim_e_backspace_preserva_o_prefixo() {
     app.on_key(KeyEvent::from(KeyCode::Backspace));
     assert_eq!(app.commands.as_ref().expect("pop-up").input, ";select ");
 
-    // Apagar tudo não tira o `;` inicial.
-    for _ in 0.."select ".len() + 1 {
+    // Apagar tudo esvazia a linha para trocar o prefixo do comando.
+    for _ in 0..";select ".len() {
         app.on_key(KeyEvent::from(KeyCode::Backspace));
     }
-    assert_eq!(app.commands.as_ref().expect("pop-up").input, ";");
+    let commands = app.commands.as_ref().expect("pop-up");
+    assert_eq!(commands.input, "");
+
+    // O `#` inicial seleciona a busca de tabela.
+    for caractere in "#pro".chars() {
+        app.on_key(tecla(caractere));
+    }
+    let commands = app.commands.as_ref().expect("pop-up");
+    assert_eq!(commands.tab, crate::app::CommandTab::Table);
+    assert_eq!(commands.input, "#pro");
+}
+
+#[test]
+fn tab_troca_de_aba_levando_o_texto_junto() {
+    let mut app = app_navegando();
+    app.on_key(ctrl('p'));
+    for caractere in "select 1".chars() {
+        app.on_key(tecla(caractere));
+    }
+
+    // Só o prefixo troca; o resto do texto acompanha a aba.
+    app.on_key(KeyEvent::from(KeyCode::Tab));
+    let commands = app.commands.as_ref().expect("pop-up");
+    assert_eq!(commands.tab, crate::app::CommandTab::Table);
+    assert_eq!(commands.input, "#select 1");
+
+    app.on_key(KeyEvent::from(KeyCode::BackTab));
+    let commands = app.commands.as_ref().expect("pop-up");
+    assert_eq!(commands.tab, crate::app::CommandTab::Sql);
+    assert_eq!(commands.input, ";select 1");
+}
+
+#[test]
+fn reabrir_com_hash_volta_na_aba_table() {
+    let mut app = app_nas_tabelas();
+    app.on_key(ctrl('p'));
+    // O pop-up abre com o `;`: apaga e digita o prefixo da busca.
+    app.on_key(KeyEvent::from(KeyCode::Backspace));
+    for caractere in "#users".chars() {
+        app.on_key(tecla(caractere));
+    }
+    let commands = app.commands.as_ref().expect("pop-up");
+    assert_eq!(commands.tab, crate::app::CommandTab::Table);
+    app.on_key(KeyEvent::from(KeyCode::Esc));
+
+    app.on_key(ctrl('p'));
+    let commands = app.commands.as_ref().expect("pop-up aberto");
+    assert_eq!(commands.tab, crate::app::CommandTab::Table);
+    assert_eq!(commands.input, "#users");
 }
 
 #[test]
@@ -184,6 +232,87 @@ fn enter_sozinho_executa_como_o_ctrl_enter_do_terminal() {
 
     assert!(app.commands.is_none(), "o pop-up fecha ao executar");
     assert!(matches!(app.status, Status::Loading(ref o) if o == "consulta"));
+}
+
+#[test]
+fn sugestoes_completam_pelo_nome_da_tabela() {
+    let tabelas = vec![
+        String::from("orders"),
+        String::from("products"),
+        String::from("profiles"),
+    ];
+    let commands = crate::app::Commands::with_input(String::from("#pro"));
+    assert_eq!(commands.tab, crate::app::CommandTab::Table);
+    assert_eq!(commands.table_query(), "pro");
+    assert_eq!(commands.suggestions(&tabelas), vec![1, 2]);
+}
+
+#[test]
+fn sugestoes_vazias_na_aba_sql_e_sem_prefixo_mostra_a_lista() {
+    let tabelas = vec![String::from("orders"), String::from("users")];
+    let sql = crate::app::Commands::with_input(String::from(";select 1"));
+    assert!(sql.suggestions(&tabelas).is_empty());
+
+    let busca = crate::app::Commands::with_input(String::from("#"));
+    assert_eq!(busca.suggestions(&tabelas), vec![0, 1]);
+}
+
+#[test]
+fn enter_na_busca_exata_abre_a_tabela_nos_registros() {
+    let mut app = app_nas_tabelas();
+    app.on_key(ctrl('p'));
+    app.on_key(KeyEvent::from(KeyCode::Backspace));
+    for caractere in "#users".chars() {
+        app.on_key(tecla(caractere));
+    }
+    app.on_key(ctrl_enter());
+
+    assert!(app.commands.is_none(), "o pop-up fecha ao executar");
+    assert!(app.focus == Focus::Data, "cai direto nos registros");
+    assert_eq!(app.list_state.selected(), Some(1));
+    assert!(matches!(app.status, Status::Loading(ref t) if t == "users"));
+}
+
+#[test]
+fn enter_na_busca_parcial_abre_a_primeira_sugestao() {
+    let mut app = app_nas_tabelas();
+    app.on_key(ctrl('p'));
+    app.on_key(KeyEvent::from(KeyCode::Backspace));
+    for caractere in "#use".chars() {
+        app.on_key(tecla(caractere));
+    }
+    app.on_key(ctrl_enter());
+
+    assert!(app.commands.is_none());
+    assert!(app.focus == Focus::Data);
+    assert!(matches!(app.status, Status::Loading(ref t) if t == "users"));
+}
+
+#[test]
+fn enter_sem_tabela_mantem_o_popup_para_a_correcao() {
+    let mut app = app_nas_tabelas();
+    app.on_key(ctrl('p'));
+    app.on_key(KeyEvent::from(KeyCode::Backspace));
+    for caractere in "#xyz".chars() {
+        app.on_key(tecla(caractere));
+    }
+    app.on_key(ctrl_enter());
+
+    assert!(app.commands.is_some(), "o pop-up continua aberto");
+    assert_eq!(app.commands.as_ref().expect("pop-up").input, "#xyz");
+    assert!(matches!(app.status, Status::Failed(ref erro) if erro == "tabela não encontrada: xyz"));
+}
+
+#[test]
+fn enter_com_hash_puro_pede_a_tabela() {
+    let mut app = app_nas_tabelas();
+    app.on_key(ctrl('p'));
+    app.on_key(KeyEvent::from(KeyCode::Backspace));
+    app.on_key(tecla('#'));
+    app.on_key(ctrl_enter());
+
+    assert!(app.commands.is_some(), "o pop-up continua aberto");
+    assert!(matches!(app.status, Status::Failed(ref erro) if erro == "informe a tabela"));
 }
 
 #[test]

@@ -10,10 +10,17 @@ use super::App;
 use super::state::ConnectionEdit;
 
 impl App {
-    /// `ctrl+p`: abre o comando master na aba SQL, com o último comando no
-    /// buffer (ou o `;` inicial, na primeira vez).
+    /// `ctrl+p`: abre o comando master com o último comando no buffer (ou o
+    /// `;` inicial, na primeira vez).
     pub(super) fn open_commands(&mut self) {
-        self.commands = Some(super::state::Commands::with_input(self.sql_buffer.clone()));
+        self.reopen_commands();
+    }
+
+    /// Mostra o pop-up de volta com o texto do buffer, na aba do prefixo.
+    fn reopen_commands(&mut self) {
+        self.commands = Some(super::state::Commands::with_input(
+            self.commands_buffer.clone(),
+        ));
     }
 
     /// `enter` no comando master: executa a aba ativa e guarda o texto no
@@ -22,8 +29,15 @@ impl App {
         let Some(commands) = self.commands.take() else {
             return;
         };
-        self.sql_buffer = commands.input.clone();
-        let sql = commands.sql();
+        self.commands_buffer = commands.input.clone();
+        match commands.tab {
+            super::state::CommandTab::Sql => self.execute_sql(commands.sql()),
+            super::state::CommandTab::Table => self.execute_table(commands.table_query()),
+        }
+    }
+
+    /// Executa o SQL: vazio recarrega a tabela aberta, senão vai ao servidor.
+    fn execute_sql(&mut self, sql: String) {
         if sql.is_empty() {
             if let Some(table) = self.current.clone() {
                 self.load(table);
@@ -34,6 +48,47 @@ impl App {
         }
         self.status = super::state::Status::Loading(String::from("consulta"));
         self.db.request(Request::Query { sql });
+    }
+
+    /// `enter` na busca de tabela: abre a exata ou a primeira sugestão da
+    /// caixa de completar. Sem ela, o pop-up volta para a correção.
+    fn execute_table(&mut self, busca: String) {
+        if busca.is_empty() {
+            self.reopen_commands();
+            self.status = super::state::Status::Failed(String::from("informe a tabela"));
+            return;
+        }
+        let Some(index) = self.find_table(&busca) else {
+            self.reopen_commands();
+            self.status = super::state::Status::Failed(format!("tabela não encontrada: {busca}"));
+            return;
+        };
+        let Some(table) = self.tables.get(index).cloned() else {
+            return;
+        };
+        self.list_state.select(Some(index));
+        // Como o segundo `enter` na lista: cai direto nos registros.
+        self.focus = super::state::Focus::Data;
+        if self.current.as_deref() != Some(table.as_str()) || self.data.is_none() {
+            self.load(table);
+        }
+    }
+
+    /// Índice da tabela buscada: a exata (sem olhar maiúsculas) ou a primeira
+    /// sugestão da caixa de completar.
+    fn find_table(&self, busca: &str) -> Option<usize> {
+        if busca.is_empty() {
+            return None;
+        }
+        self.tables
+            .iter()
+            .position(|tabela| tabela.eq_ignore_ascii_case(busca))
+            .or_else(|| {
+                let busca = busca.to_lowercase();
+                self.tables
+                    .iter()
+                    .position(|tabela| tabela.to_lowercase().contains(&busca))
+            })
     }
 
     /// Pede a página seguinte quando a seleção encosta na última linha carregada.
