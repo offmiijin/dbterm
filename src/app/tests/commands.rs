@@ -560,3 +560,35 @@ fn reset_com_ponto_e_virgula_limpa_e_pede_200() {
     assert!(!app.end_reached);
     assert!(matches!(app.status, Status::Loading(ref t) if t == "events"));
 }
+
+#[test]
+fn prefixo_sql_restaura_a_ultima_busca() {
+    let mut app = app_com_grade();
+    app.on_key(ctrl('p'));
+    for caractere in "id = 10".chars() {
+        app.on_key(tecla(caractere));
+    }
+    app.on_key(ctrl_enter());
+    assert!(app.commands.is_none());
+
+    app.on_key(tecla(';'));
+    assert_eq!(
+        app.commands.as_ref().expect("pop-up aberto").input,
+        ";id = 10"
+    );
+}
+
+#[test]
+fn prefixo_de_outra_aba_abre_limpo() {
+    let mut app = app_com_grade();
+    app.on_key(ctrl('p'));
+    for caractere in "id = 10".chars() {
+        app.on_key(tecla(caractere));
+    }
+    app.on_key(ctrl_enter());
+
+    app.on_key(tecla('#'));
+    let commands = app.commands.as_ref().expect("pop-up aberto");
+    assert_eq!(commands.tab, crate::app::CommandTab::Table);
+    assert_eq!(commands.input, "#");
+}

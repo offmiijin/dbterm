@@ -16,10 +16,21 @@ impl App {
         self.reopen_commands();
     }
 
-    /// `;`/`#`: abre o comando master direto na aba do prefixo, só com o
-    /// prefixo fixo.
+    /// `;`/`#`: abre o comando master direto na aba do prefixo. Se o buffer
+    /// guarda um comando da mesma aba, ele volta para edição; senão, abre só
+    /// com o prefixo fixo.
     pub(super) fn open_commands_with(&mut self, tab: super::state::CommandTab) {
-        self.mostrar_comandos(super::state::Commands::with_tab(tab));
+        let mesmo_comando = self
+            .commands_buffer
+            .chars()
+            .next()
+            .and_then(super::state::CommandTab::from_prefix)
+            == Some(tab);
+        if mesmo_comando {
+            self.reopen_commands();
+        } else {
+            self.mostrar_comandos(super::state::Commands::with_tab(tab));
+        }
     }
 
     /// Mostra o pop-up com a tabela aberta fixada: é nela que o SQL busca.
