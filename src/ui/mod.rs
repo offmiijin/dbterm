@@ -29,7 +29,7 @@ const KEYS_WITH_EDIT: &str = "q sair · c/b/t nível · esc subir · e editar ·
 /// Teclas dos pop-ups de edição (conexão, banco e tabela).
 const POPUP_KEYS: &str = "ctrl+s salvar · esc cancelar";
 /// Teclas da lista de opções aberta sobre um pop-up de edição.
-const PICKER_KEYS: &str = "j/k mover · enter escolher · esc voltar";
+const PICKER_KEYS: &str = "j/k mover · enter selecionar · esc voltar";
 /// Espaço que a mensagem de estado nunca perde para a linha de atalhos.
 const MIN_STATUS: u16 = 32;
 

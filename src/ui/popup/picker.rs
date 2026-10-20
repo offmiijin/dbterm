@@ -60,7 +60,7 @@ fn linha_acoes_lista() -> Line<'static> {
         Span::styled("j/k", theme::accent()),
         Span::styled(" mover · ", theme::text()),
         Span::styled("enter", theme::accent()),
-        Span::styled(" escolher · ", theme::text()),
+        Span::styled(" selecionar · ", theme::text()),
         Span::styled("esc", theme::accent()),
         Span::styled(" voltar", theme::text()),
     ])

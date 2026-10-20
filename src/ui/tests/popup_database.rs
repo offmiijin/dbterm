@@ -90,7 +90,7 @@ fn lista_do_charset_mostra_as_opcoes_e_o_valor_atual_destacado() {
     assert!(tela.contains("\u{f0d7} Charset"), "{tela}");
     assert!(tela.contains("latin1"), "{tela}");
     assert!(tela.contains("utf8mb4"), "{tela}");
-    assert!(tela.contains("enter escolher · esc voltar"), "{tela}");
+    assert!(tela.contains("enter selecionar · esc voltar"), "{tela}");
     assert!(!tela.contains("Somente leitura"), "{tela}");
 
     // O item atual (utf8mb4) vem com o marcador e o fundo da seleção.

@@ -156,7 +156,7 @@ fn lista_da_engine_mostra_as_opcoes_do_servidor() {
     assert!(tela.contains("\u{f0d7} Engine"), "{tela}");
     assert!(tela.contains("InnoDB"), "{tela}");
     assert!(tela.contains("MyISAM"), "{tela}");
-    assert!(tela.contains("enter escolher · esc voltar"), "{tela}");
+    assert!(tela.contains("enter selecionar · esc voltar"), "{tela}");
     assert!(!tela.contains("Padrões de texto"), "{tela}");
 }
 
