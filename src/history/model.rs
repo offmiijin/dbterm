@@ -123,5 +123,3 @@ mod tests {
         assert_eq!(saved.password.as_deref(), Some("segredo"));
     }
 }
-
-

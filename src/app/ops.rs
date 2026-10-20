@@ -6,8 +6,8 @@ use crate::config::{Connection, Field};
 use crate::db::{DatabaseAlter, ROW_LIMIT, Request};
 use crate::history::Saved;
 
-use super::state::ConnectionEdit;
 use super::App;
+use super::state::ConnectionEdit;
 
 impl App {
     /// Pede a página seguinte quando a seleção encosta na última linha carregada.

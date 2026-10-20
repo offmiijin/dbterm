@@ -8,8 +8,8 @@ use crate::db::{Response, TableData};
 use crate::history::Saved;
 use crate::view;
 
-use super::state::{DatabaseEdit, TableEdit};
 use super::App;
+use super::state::{DatabaseEdit, TableEdit};
 
 impl App {
     pub(super) fn on_response(&mut self, response: Response) {
@@ -49,8 +49,7 @@ impl App {
                 self.database_edit = Some(DatabaseEdit::new(info));
             }
             Response::DatabaseUpdated { database } => {
-                self.status =
-                    super::state::Status::Notice(format!("banco {database} atualizado"));
+                self.status = super::state::Status::Notice(format!("banco {database} atualizado"));
             }
             Response::TableInfo(info) => {
                 self.status = super::state::Status::Ready;
@@ -58,8 +57,7 @@ impl App {
             }
             Response::TableUpdated { before, after } => {
                 self.renamed(&before, &after);
-                self.status =
-                    super::state::Status::Notice(format!("tabela {after} atualizada"));
+                self.status = super::state::Status::Notice(format!("tabela {after} atualizada"));
             }
             Response::Database(database) => {
                 self.database = database;
@@ -138,8 +136,7 @@ impl App {
         }
         self.end_reached = data.rows.len() < limit;
         // A página nova pode trazer valores mais largos que os já vistos.
-        for (largura, nova) in self.larguras.iter_mut().zip(view::larguras(&data))
-        {
+        for (largura, nova) in self.larguras.iter_mut().zip(view::larguras(&data)) {
             *largura = (*largura).max(nova);
         }
         if let Some(atual) = self.data.as_mut() {

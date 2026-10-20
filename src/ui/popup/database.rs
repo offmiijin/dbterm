@@ -5,8 +5,8 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 
-use super::{EDIT_ROTULO, campo, popup, popup_content_width, popup_rule, tamanho};
 use super::draw_picker;
+use super::{EDIT_ROTULO, campo, popup, popup_content_width, popup_rule, tamanho};
 use crate::app::DatabaseEdit;
 use crate::config::DatabaseField;
 use crate::theme;

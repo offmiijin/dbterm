@@ -1,7 +1,7 @@
 //! Valores do MySQL como texto: escape de identificadores, tipos e células.
 
-use mysql::consts::ColumnType;
 use mysql::Value;
+use mysql::consts::ColumnType;
 
 use super::super::ColumnKind;
 
@@ -45,8 +45,8 @@ pub(crate) fn cell(value: &Value) -> String {
 
 #[cfg(test)]
 mod tests {
-    use mysql::consts::ColumnType;
     use mysql::Value;
+    use mysql::consts::ColumnType;
 
     use super::super::super::ColumnKind;
     use super::{cell, kind_of};

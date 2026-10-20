@@ -9,7 +9,13 @@ use crate::theme;
 use crate::view::largura;
 
 /// Lista de opções do campo: a janela acompanha o item destacado.
-pub(crate) fn draw_picker(frame: &mut Frame, area: Rect, items: &[String], index: usize, titulo: &str) {
+pub(crate) fn draw_picker(
+    frame: &mut Frame,
+    area: Rect,
+    items: &[String],
+    index: usize,
+    titulo: &str,
+) {
     let conteudo = popup_content_width(area);
     // O pop-up gasta duas linhas com a régua e as ações, mais as bordas.
     let altura = area.height.saturating_sub(4) as usize;

@@ -5,8 +5,11 @@ use ratatui::Frame;
 use ratatui::layout::Rect;
 use ratatui::text::{Line, Span};
 
-use super::{CAMPO_ESPACO, COMENTARIO_LINHAS, EDIT_ROTULO, campo, popup, popup_content_width, popup_rule, tamanho};
 use super::draw_picker;
+use super::{
+    CAMPO_ESPACO, COMENTARIO_LINHAS, EDIT_ROTULO, campo, popup, popup_content_width, popup_rule,
+    tamanho,
+};
 use crate::app::TableEdit;
 use crate::config::TableField;
 use crate::theme;

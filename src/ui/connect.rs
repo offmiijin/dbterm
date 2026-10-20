@@ -7,9 +7,9 @@ use ratatui::widgets::Paragraph;
 
 use super::banner;
 use crate::app::App;
-use crate::view::largura;
 use crate::config::{Connection, Field};
 use crate::theme;
+use crate::view::largura;
 
 /// Largura do rótulo de cada campo, alinhado à direita.
 const ROTULO: usize = 8;

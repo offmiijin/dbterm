@@ -1,14 +1,14 @@
 //! Pop-up "Editar" de uma conexão salva: o servidor em cima, a autenticação
 //! embaixo.
 
-use ratatui::Frame;
-use ratatui::layout::Rect;
-use ratatui::text::{Line, Span};
-use super::{CAMPO_ROTULO, campo, popup, popup_content_width, popup_rule};
 use super::super::connect::mostrado;
+use super::{CAMPO_ROTULO, campo, popup, popup_content_width, popup_rule};
 use crate::app::ConnectionEdit;
 use crate::config::Field;
 use crate::theme;
+use ratatui::Frame;
+use ratatui::layout::Rect;
+use ratatui::text::{Line, Span};
 
 pub(crate) fn draw_connection_edit(frame: &mut Frame, area: Rect, edit: Option<&ConnectionEdit>) {
     let Some(edit) = edit else {
@@ -66,4 +66,3 @@ fn linha_edicao() -> Line<'static> {
         Span::styled(" cancelar", theme::text()),
     ])
 }
-

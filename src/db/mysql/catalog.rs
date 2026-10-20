@@ -3,8 +3,8 @@
 //! Tabelas, bancos, detalhes de banco/tabela e os catálogos (charsets,
 //! collations, engines) que alimentam as listas dos pop-ups.
 
-use mysql::prelude::Queryable;
 use mysql::Conn;
+use mysql::prelude::Queryable;
 
 use super::super::{Charset, Collation, DatabaseInfo, TableInfo};
 
