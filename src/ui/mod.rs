@@ -1,14 +1,11 @@
 //! Desenho da tela. Toda função aqui só lê o estado — a exceção é a rolagem do
 //! `TableState` da grade, que o widget atualiza ao desenhar.
 //!
-//! O layout fica aqui; a grade de dados em `grid` e os pop-ups em `popup`. A app
-//! também usa [`larguras`] para medir as colunas uma vez por mudança de dados.
+//! O layout fica aqui; a grade de dados em `grid` e os pop-ups em `popup`. A
+//! medida das colunas mora em `crate::view`, usada pela app e pela grade.
 
 mod connect;
 mod grid;
-/// Largura natural de cada coluna: quem chama é a app, uma vez por mudança de
-/// dados, porque medir varre todas as linhas carregadas.
-pub(crate) use grid::larguras;
 mod popup;
 mod quick;
 #[cfg(test)]
@@ -24,6 +21,7 @@ use crate::app::{App, Focus, Mode, Screen, Status};
 use crate::db::TableData;
 use crate::history::Saved;
 use crate::theme;
+use crate::view::largura;
 
 const KEYS: &str = "q sair · c/b/t nível · esc subir · j/k mover · enter abrir · h/l colunas · r recarregar · g/G topo/fim";
 /// Na cascata o `e` entra como ação de edição do nível ativo.
@@ -47,7 +45,7 @@ const BANNER: [&str; 6] = [
 
 /// A marca em letras grandes; em terminal estreito, só o nome.
 fn banner(largura_tela: u16) -> Vec<Line<'static>> {
-    if largura_tela as usize >= text::largura(BANNER[0]) {
+    if largura_tela as usize >= largura(BANNER[0]) {
         BANNER
             .iter()
             .map(|linha| Line::from(*linha).style(theme::accent()).centered())

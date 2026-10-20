@@ -10,13 +10,12 @@ use ratatui::layout::{Constraint, Rect};
 use ratatui::widgets::{Cell, HighlightSpacing, Paragraph, Row, Table, TableState};
 
 use super::panel;
-use super::text::{fit, largura};
+use super::text::fit;
 use crate::app::Mode;
 use crate::db::TableData;
 use crate::theme;
+use crate::view::{largura, larguras};
 
-/// Largura máxima de uma coluna da grade.
-const MAX_COL: usize = 28;
 /// Linhas que o painel come: duas bordas e o cabeçalho da grade.
 const BORDAS: u16 = 2;
 const HEADER: u16 = 1;
@@ -173,24 +172,6 @@ impl Janela {
     fn fim(&self) -> usize {
         self.inicio + self.larguras.len()
     }
-}
-
-/// Largura natural de cada coluna: o nome do cabeçalho inteiro e o conteúdo,
-/// cortado em [`MAX_COL`].
-///
-/// Varre todas as linhas carregadas, então quem chama mede uma vez por mudança
-/// de dados — não a cada quadro.
-pub(crate) fn larguras(data: &TableData) -> Vec<usize> {
-    let mut ideais = Vec::with_capacity(data.columns.len());
-    for (index, name) in data.columns.iter().enumerate() {
-        let cabecalho = largura(name);
-        let conteudo = data.rows.iter().fold(cabecalho, |maior, row| {
-            row.get(index)
-                .map_or(maior, |value| maior.max(largura(value).min(MAX_COL)))
-        });
-        ideais.push(conteudo);
-    }
-    ideais
 }
 
 /// A largura mínima de cada coluna: o nome do cabeçalho inteiro.
