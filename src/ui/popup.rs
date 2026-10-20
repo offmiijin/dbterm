@@ -91,8 +91,6 @@ const CAMPO_ROTULO: usize = 8;
 const EDIT_ROTULO: usize = 15;
 /// Respiro entre o rótulo e o valor e entre dois campos na mesma linha.
 const CAMPO_ESPACO: usize = 2;
-/// Largura do campo "Porta", que divide a linha com o "Host".
-const PORTA: usize = 16;
 /// Linhas da caixa do comentário da tabela: a linha do rótulo e mais duas.
 const COMENTARIO_LINHAS: usize = 3;
 
@@ -103,16 +101,11 @@ pub(super) fn draw_connection_edit(frame: &mut Frame, area: Rect, edit: Option<&
         return;
     };
     let conteudo = popup_content_width(area);
-    // "Host" e "Porta" lado a lado: a porta fica com a largura fixa e o host
-    // com o resto da linha.
-    let host = conteudo.saturating_sub(PORTA + CAMPO_ESPACO);
-    let mut linha_host = campo_conexao(edit, Field::Host, CAMPO_ROTULO, host);
-    linha_host.push(Span::styled(" ".repeat(CAMPO_ESPACO), theme::base()));
-    linha_host.extend(campo_conexao(edit, Field::Port, CAMPO_ROTULO, PORTA));
 
     let lines = vec![
         Line::from("Servidor").style(theme::header()),
-        Line::from(linha_host),
+        campo_linha(edit, Field::Host, conteudo),
+        campo_linha(edit, Field::Port, conteudo),
         campo_linha(edit, Field::Database, conteudo),
         Line::from(""),
         Line::from("Autenticação").style(theme::header()),
