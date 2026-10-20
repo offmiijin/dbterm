@@ -92,3 +92,51 @@ fn grade_desenha_so_as_linhas_da_janela() {
         .collect();
     assert!(linha.contains('❯'), "{linha}");
 }
+
+#[test]
+fn busca_mostra_o_sql_numa_linha_acima_da_grade() {
+    let mut app = app_com_dados();
+    app.query_sql = Some(String::from("SELECT * FROM users WHERE id = 1"));
+    let terminal = terminal_de(&mut app, 100, 12);
+    let buffer = terminal.backend().buffer();
+    let tela = texto(buffer);
+
+    assert!(tela.contains("SELECT * FROM users WHERE id = 1"), "{tela}");
+    // A linha da busca fica acima do cabeçalho da grade.
+    let (_, sql_y) = achar(buffer, "WHERE id = 1");
+    let (_, cabecalho_y) = achar(buffer, "name");
+    assert!(sql_y < cabecalho_y, "busca acima da grade: {tela}");
+}
+
+#[test]
+fn linha_do_sql_corta_o_fim_quando_nao_cabe() {
+    let mut app = app_com_dados();
+    app.query_sql = Some(String::from("SELECT * FROM users WHERE id = 1"));
+    let tela = screen(&mut app);
+
+    assert!(tela.contains("SELECT * FROM users"), "{tela}");
+    assert!(tela.contains("…"), "{tela}");
+    assert!(!tela.contains("WHERE id = 1"), "{tela}");
+}
+
+#[test]
+fn sem_busca_nao_ha_linha_de_sql() {
+    let tela = screen_at(&mut app_com_dados(), 100);
+
+    assert!(tela.contains("dados · 2 linhas"), "{tela}");
+    assert!(!tela.contains("SELECT"), "{tela}");
+}
+
+#[test]
+fn grade_fica_na_mesma_linha_com_e_sem_busca() {
+    // Sem busca, a faixa fica em branco mas ocupa a linha.
+    let terminal = terminal_de(&mut app_com_dados(), 100, 12);
+    let (_, sem_busca_y) = achar(terminal.backend().buffer(), "name");
+
+    let mut app = app_com_dados();
+    app.query_sql = Some(String::from("SELECT * FROM users WHERE id = 1"));
+    let terminal = terminal_de(&mut app, 100, 12);
+    let (_, com_busca_y) = achar(terminal.backend().buffer(), "name");
+
+    assert_eq!(sem_busca_y, com_busca_y, "a grade não pula");
+}

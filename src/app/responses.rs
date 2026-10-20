@@ -160,10 +160,11 @@ impl App {
         self.status = super::state::Status::Ready;
     }
 
-    /// O retorno do SQL livre vira a grade, com o foco nos registros. Sem
-    /// colunas, o comando não devolveu linhas e a grade fica como está. Sem
-    /// paginação automática (`SHOW`, `LIMIT` próprio...), a primeira página é
-    /// a última; senão a grade pagina de 200 em 200 como a tabela.
+    /// O retorno do SQL livre vira a grade, com o foco nos registros e a base
+    /// executada guardada para mostrar acima da grade. Sem colunas, o comando
+    /// não devolveu linhas e a grade fica como está. Sem paginação automática
+    /// (`SHOW`, `LIMIT` próprio...), a primeira página é a última; senão a
+    /// grade pagina de 200 em 200 como a tabela.
     pub(super) fn apply_query(&mut self, sql: String, limit: usize, data: TableData) {
         if data.columns.is_empty() {
             self.loading_more = false;
@@ -171,29 +172,12 @@ impl App {
                 super::state::Status::Notice(String::from("consulta executada (sem retorno)"));
             return;
         }
-        // Consulta de uma vez só: sem próxima página e fora do modo consulta.
-        if !consulta_paginavel(&sql) {
-            let linhas = data.rows.len();
-            self.query_sql = None;
-            self.larguras = view::larguras(&data);
-            self.data = Some(data);
-            self.end_reached = true;
-            self.loading_more = false;
-            self.table_state
-                .select(if linhas == 0 { None } else { Some(0) });
-            self.column = None;
-            self.hscroll = 0;
-            self.mode = super::state::Mode::Rows;
-            self.edit = None;
-            self.focus = super::state::Focus::Data;
-            self.status = super::state::Status::Ready;
-            return;
-        }
         let linhas = data.rows.len();
+        let paginada = consulta_paginavel(&sql);
         self.query_sql = Some(sql);
         self.larguras = view::larguras(&data);
         self.data = Some(data);
-        self.end_reached = linhas < limit;
+        self.end_reached = !paginada || linhas < limit;
         self.loading_more = false;
         self.table_state
             .select(if linhas == 0 { None } else { Some(0) });

@@ -392,7 +392,8 @@ fn resposta_sem_limit_pagina_de_200_em_200() {
 
 #[test]
 fn resposta_da_consulta_vira_a_grade_sem_paginacao() {
-    // Com `LIMIT` próprio, a consulta executa de uma vez e não pagina.
+    // Com `LIMIT` próprio, a consulta executa de uma vez e não pagina — mas
+    // a base executada fica guardada para mostrar acima da grade.
     let mut app = app_com_grade();
     app.on_response(Response::Query {
         sql: String::from("SELECT * FROM users LIMIT 1"),
@@ -410,7 +411,10 @@ fn resposta_da_consulta_vira_a_grade_sem_paginacao() {
     assert_eq!(data.columns, ["COUNT(*)"]);
     assert_eq!(data.rows, [["2"]]);
     assert!(app.end_reached, "consulta não pagina");
-    assert!(app.query_sql.is_none());
+    assert_eq!(
+        app.query_sql.as_deref(),
+        Some("SELECT * FROM users LIMIT 1")
+    );
     assert!(!app.loading_more);
     assert_eq!(app.table_state.selected(), Some(0));
     assert!(app.focus == Focus::Data);

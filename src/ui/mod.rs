@@ -85,6 +85,7 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         hscroll,
         larguras,
         end_reached,
+        query_sql,
         connection_edit,
         database_edit,
         table_edit,
@@ -139,6 +140,15 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         .highlight_symbol("❯ ")
         .highlight_style(theme::selected());
     frame.render_stateful_widget(list, lista, state);
+
+    // Faixa da busca executada, sempre reservada para a grade não pular:
+    // com busca mostra a base por extenso (cortada no fim quando não cabe),
+    // sem busca fica em branco e a grade segue na mesma linha.
+    let [faixa, main] = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(main);
+    if let Some(sql) = query_sql.as_deref() {
+        let linha = text::fit(sql, faixa.width as usize).unwrap_or_else(|| sql.to_owned());
+        frame.render_widget(Paragraph::new(linha).style(theme::muted()), faixa);
+    }
 
     grid::draw_data(
         frame,
