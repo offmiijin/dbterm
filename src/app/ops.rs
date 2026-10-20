@@ -92,6 +92,39 @@ impl App {
         });
     }
 
+    /// `ctrl+enter` no editor: executa o SQL da instância aberta, com a
+    /// mesma validação do `;` (só `SELECT`). O resultado aparece na grade
+    /// como na busca — o editor fecha, mas o texto fica na instância. Com
+    /// o rascunho vazio, só avisa em vez de executar.
+    pub(super) fn execute_current_query(&mut self) {
+        let Some(index) = self.active_query else {
+            return;
+        };
+        let Some(query) = self.queries.get(index) else {
+            return;
+        };
+        let sql = query.sql.trim().to_owned();
+        if sql.is_empty() {
+            self.status = super::state::Status::Notice(String::from("consulta vazia"));
+            return;
+        }
+        let base = match expandir_sql(&sql, self.current.as_deref()) {
+            Ok(base) => base,
+            Err(message) => {
+                self.status = super::state::Status::Failed(message);
+                return;
+            }
+        };
+        self.active_query = None;
+        self.limpar_grade();
+        self.status = super::state::Status::Loading(String::from("consulta"));
+        self.db.request(Request::Query {
+            sql: base,
+            offset: 0,
+            limit: ROW_LIMIT,
+        });
+    }
+
     /// Esvazia a grade para a busca entrar no lugar: os registros anteriores
     /// saem do buffer na hora, e a resposta preenche do zero.
     fn limpar_grade(&mut self) {
@@ -215,14 +248,16 @@ impl App {
         self.status = super::state::Status::Ready;
     }
 
-    /// Abre a query selecionada na lista: o centro vira o editor dela.
+    /// Abre a query selecionada na lista: o centro vira o editor dela, com
+    /// o cursor no fim para continuar digitando.
     pub(crate) fn open_selected_query(&mut self) {
         let Some(index) = self.queries_state.selected() else {
             return;
         };
-        if index >= self.queries.len() {
+        let Some(query) = self.queries.get_mut(index) else {
             return;
-        }
+        };
+        query.fim();
         self.active_query = Some(index);
         self.focus = super::state::Focus::Data;
         self.mode = super::state::Mode::Rows;

@@ -14,6 +14,7 @@ mod text;
 
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
+use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, List, ListItem, ListState, Paragraph, TableState};
 
@@ -30,7 +31,8 @@ const KEYS_WITH_EDIT: &str = "q sair · c/b/t/u nível · esc subir · e editar 
 const QUERIES_KEYS: &str =
     "q sair · c/b/t nível · esc subir · j/k mover · enter abrir · n nova · d apagar · g/G topo/fim";
 /// Teclas do editor de query no centro (tudo digita no rascunho).
-const QUERY_EDITOR_KEYS: &str = "esc volta às queries · enter quebra linha";
+const QUERY_EDITOR_KEYS: &str =
+    "setas/ctrl+h,j,k,l movem · tab indenta · ctrl+enter executa · esc volta";
 /// Teclas dos pop-ups de edição (conexão, banco e tabela).
 const POPUP_KEYS: &str = "ctrl+s salvar · esc cancelar";
 /// Teclas da lista de opções aberta sobre um pop-up de edição.
@@ -278,9 +280,34 @@ fn draw_lateral_direita(
     let [chips_dir, lista_dir] =
         Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(area);
     frame.render_widget(
-        Paragraph::new(right_chips_line(right_tab, focus == Focus::Queries)).centered(),
+        Paragraph::new(right_chips_line(
+            right_tab,
+            focus == Focus::Queries,
+            queries.len(),
+        ))
+        .centered(),
         chips_dir,
     );
+    // Sem instâncias, o meio do painel vira o convite de criação.
+    if queries.is_empty() {
+        let bloco = panel(String::new(), focus == Focus::Queries);
+        let dentro = bloco.inner(lista_dir);
+        frame.render_widget(bloco, lista_dir);
+        let [_, meio, _] = Layout::vertical([
+            Constraint::Fill(1),
+            Constraint::Length(1),
+            Constraint::Fill(1),
+        ])
+        .areas(dentro);
+        let dica = Line::from(vec![
+            Span::styled("[", theme::muted()),
+            Span::styled("n", theme::accent()),
+            Span::styled("]", theme::muted()),
+            Span::styled(" nova query", theme::text()),
+        ]);
+        frame.render_widget(Paragraph::new(dica).centered(), meio);
+        return;
+    }
     let itens_dir: Vec<ListItem> = queries.iter().map(query_item).collect();
     let list_dir = List::new(itens_dir)
         .block(panel(String::new(), focus == Focus::Queries))
@@ -489,23 +516,19 @@ fn tabela_item(table: &String) -> ListItem<'static> {
 const ICONE_QUERY: char = '\u{f120}'; // terminal
 
 /// Linha de chips da lateral direita, espelhando a esquerda. Hoje só tem a
-/// aba queries; as próximas entram em `RightTab::ALL` e aparecem aqui.
-fn right_chips_line(ativa: RightTab, focada: bool) -> Line<'static> {
+/// aba queries; as próximas entram em `RightTab::ALL` e aparecem aqui. O
+/// número entre parênteses é o tanto de instâncias na aba.
+fn right_chips_line(ativa: RightTab, focada: bool, total: usize) -> Line<'static> {
     let mut spans = Vec::new();
     for (indice, aba) in RightTab::ALL.iter().enumerate() {
         if indice > 0 {
             spans.push(Span::styled(" ", theme::muted()));
         }
+        let rotulo = format!("{} {} ({total})", aba.icone(), aba.titulo());
         if *aba == ativa && focada {
-            spans.push(Span::styled(
-                format!("{} {} ", aba.icone(), aba.titulo()),
-                theme::accent(),
-            ));
+            spans.push(Span::styled(rotulo, theme::accent()));
         } else if *aba == ativa {
-            spans.push(Span::styled(
-                format!("{} {} ", aba.icone(), aba.titulo()),
-                theme::text(),
-            ));
+            spans.push(Span::styled(rotulo, theme::text()));
         } else {
             spans.push(Span::styled("[", theme::muted()));
             spans.push(Span::styled(format!("{} ", aba.icone()), theme::accent()));
@@ -513,10 +536,6 @@ fn right_chips_line(ativa: RightTab, focada: bool) -> Line<'static> {
             spans.push(Span::styled("]", theme::muted()));
         }
     }
-    // Dica de criação sempre visível, como o `e` da cascata.
-    spans.push(Span::styled(" [", theme::muted()));
-    spans.push(Span::styled("n", theme::accent()));
-    spans.push(Span::styled("]", theme::muted()));
     Line::from(spans)
 }
 
@@ -563,14 +582,79 @@ fn draw_query_editor(
         frame.render_widget(dica, area);
         return;
     }
-    let mut texto = query.sql.clone();
-    if focused {
-        texto.push('█');
+    // O realce vale para o texto inteiro (literal pode cruzar linhas); cada
+    // `\n` vira uma `Line` para o `Paragraph` desenhar as quebras. Com foco,
+    // o caractere sob o cursor sai invertido; no fim da linha, um bloco.
+    let mut linhas: Vec<Vec<(String, Style)>> = vec![Vec::new()];
+    for (pedaco, papel) in text::realces(&query.sql) {
+        let estilo = popup::parte_estilo(papel);
+        let mut partes = pedaco.split('\n');
+        if let Some(primeira) = partes.next() {
+            if !primeira.is_empty() {
+                linhas
+                    .last_mut()
+                    .expect("linha")
+                    .push((primeira.to_owned(), estilo));
+            }
+            for parte in partes {
+                linhas.push(if parte.is_empty() {
+                    Vec::new()
+                } else {
+                    vec![(parte.to_owned(), estilo)]
+                });
+            }
+        }
     }
-    let editor = Paragraph::new(texto)
-        .block(panel(title, focused))
-        .style(theme::text());
+    let (linha_cursor, coluna_cursor) = query.linha_col();
+    let texto: Vec<Line> = linhas
+        .into_iter()
+        .enumerate()
+        .map(|(indice, pedacos)| {
+            let coluna = (focused && indice == linha_cursor).then_some(coluna_cursor);
+            Line::from(aplicar_cursor(pedacos, coluna))
+        })
+        .collect();
+    let editor = Paragraph::new(texto).block(panel(title, focused));
     frame.render_widget(editor, area);
+}
+
+/// Os pedaços de uma linha do editor como `Span`s, com o cursor aplicado:
+/// o caractere na coluna sai invertido e, no fim da linha, um bloco.
+/// Sem coluna (`None`, editor sem foco), só converte os estilos.
+fn aplicar_cursor(pedacos: Vec<(String, Style)>, coluna: Option<usize>) -> Vec<Span<'static>> {
+    let Some(coluna) = coluna else {
+        return pedacos
+            .into_iter()
+            .map(|(texto, estilo)| Span::styled(texto, estilo))
+            .collect();
+    };
+    let mut spans = Vec::new();
+    let mut vistos = 0;
+    let mut aplicado = false;
+    for (texto, estilo) in pedacos {
+        let tamanho = texto.chars().count();
+        if !aplicado && coluna >= vistos && coluna < vistos + tamanho {
+            let antes: String = texto.chars().take(coluna - vistos).collect();
+            let mut resto = texto.chars().skip(coluna - vistos);
+            let letra = resto.next().unwrap_or(' ');
+            let depois: String = resto.collect();
+            if !antes.is_empty() {
+                spans.push(Span::styled(antes, estilo));
+            }
+            spans.push(Span::styled(letra.to_string(), theme::cursor()));
+            if !depois.is_empty() {
+                spans.push(Span::styled(depois, estilo));
+            }
+            aplicado = true;
+        } else {
+            spans.push(Span::styled(texto, estilo));
+        }
+        vistos += tamanho;
+    }
+    if !aplicado {
+        spans.push(Span::styled(" ", theme::cursor()));
+    }
+    spans
 }
 
 /// Moldura de painel, usada pela grade e pela lista de tabelas.

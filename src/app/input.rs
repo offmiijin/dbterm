@@ -360,27 +360,74 @@ impl App {
     }
 
     /// Editor da query no centro: tudo digita no rascunho aberto (`enter`
-    /// quebra linha) e o `esc` volta à lista de queries. Sem atalhos de
-    /// letra aqui: `q`, `c`, `j`... são texto do SQL.
+    /// quebra linha, `tab` indenta com dois espaços) e o `esc` volta à lista
+    /// de queries. `ctrl+enter` executa a query. Setas e `ctrl+h/j/k/l`
+    /// movem o cursor. Sem outros atalhos de letra: `q`, `c`... são texto.
     fn on_key_query_editor(&mut self, key: KeyEvent) {
+        // `ctrl+enter` executa; o `main` liga o teclado estendido para ele
+        // chegar distinto do `enter` comum (que quebra linha). Num terminal
+        // sem suporte ao protocolo, os dois chegam iguais e quebra linha.
+        if key.code == KeyCode::Enter && key.modifiers.contains(KeyModifiers::CONTROL) {
+            self.execute_current_query();
+            return;
+        }
+        // `ctrl+h/j/k/l` movem como as setas; sem `ctrl`, a letra é texto.
+        if key.modifiers.contains(KeyModifiers::CONTROL)
+            && !key.modifiers.contains(KeyModifiers::ALT)
+            && let Some(query) = self.query_mut()
+        {
+            match key.code {
+                KeyCode::Char('h') | KeyCode::Char('H') => query.esquerda(),
+                KeyCode::Char('l') | KeyCode::Char('L') => query.direita(),
+                KeyCode::Char('k') | KeyCode::Char('K') => query.cima(),
+                KeyCode::Char('j') | KeyCode::Char('J') => query.baixo(),
+                _ => return,
+            }
+            return;
+        }
         match key.code {
             KeyCode::Esc => self.focus = Focus::Queries,
             KeyCode::Enter => {
-                if let Some(index) = self.active_query
-                    && let Some(query) = self.queries.get_mut(index)
+                if let Some(query) = self.query_mut() {
+                    query.inserir("\n");
+                }
+            }
+            KeyCode::Tab => {
+                if !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+                    && let Some(query) = self.query_mut()
                 {
-                    query.sql.push('\n');
+                    query.inserir("  ");
                 }
             }
             KeyCode::Backspace => {
-                if let Some(index) = self.active_query
-                    && let Some(query) = self.queries.get_mut(index)
-                {
+                if let Some(query) = self.query_mut() {
                     if is_alt_backspace(key) {
-                        delete_prev_word(&mut query.sql, 0);
+                        query.apagar_palavra();
                     } else {
-                        query.sql.pop();
+                        query.apagar();
                     }
+                }
+            }
+            KeyCode::Left => {
+                if let Some(query) = self.query_mut() {
+                    query.esquerda();
+                }
+            }
+            KeyCode::Right => {
+                if let Some(query) = self.query_mut() {
+                    query.direita();
+                }
+            }
+            KeyCode::Up => {
+                if let Some(query) = self.query_mut() {
+                    query.cima();
+                }
+            }
+            KeyCode::Down => {
+                if let Some(query) = self.query_mut() {
+                    query.baixo();
                 }
             }
             KeyCode::Char(c)
@@ -388,14 +435,18 @@ impl App {
                     .modifiers
                     .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
             {
-                if let Some(index) = self.active_query
-                    && let Some(query) = self.queries.get_mut(index)
-                {
-                    query.sql.push(c);
+                if let Some(query) = self.query_mut() {
+                    query.inserir(&c.to_string());
                 }
             }
             _ => {}
         }
+    }
+
+    /// O rascunho aberto no editor, para digitar e mover o cursor.
+    fn query_mut(&mut self) -> Option<&mut super::state::QueryInstance> {
+        self.active_query
+            .and_then(|index| self.queries.get_mut(index))
     }
 
     fn on_key_rows(&mut self, key: KeyEvent) {
@@ -484,17 +535,12 @@ impl App {
     }
 
     /// Leva o foco direto ao nível pedido pelo chip, saindo do modo coluna.
-    /// Ir às queries sem nenhuma instância cria a primeira na hora, para o
-    /// centro nunca abrir vazio sem dono.
     fn focus_level(&mut self, focus: Focus) {
         if self.focus == Focus::Data {
             self.column = None;
             self.mode = Mode::Rows;
         }
         self.focus = focus;
-        if focus == Focus::Queries && self.queries.is_empty() {
-            self.new_query();
-        }
     }
 
     fn on_key_columns(&mut self, key: KeyEvent) {

@@ -71,6 +71,11 @@ pub fn cell_selected() -> Style {
     Style::new().fg(TEXT).bg(SURFACE1)
 }
 
+/// Caractere sob o cursor do editor de query: bloco invertido no roxo.
+pub fn cursor() -> Style {
+    Style::new().fg(BASE).bg(MAUVE)
+}
+
 /// Fundo do campo em edição.
 pub fn field() -> Style {
     Style::new().fg(TEXT).bg(SURFACE0)

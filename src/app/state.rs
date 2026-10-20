@@ -170,6 +170,8 @@ pub struct QueryInstance {
     pub nome: String,
     /// Texto do editor, vazio ao criar.
     pub sql: String,
+    /// Posição do cursor em caracteres (0 = antes do primeiro).
+    pub cursor: usize,
 }
 
 impl QueryInstance {
@@ -179,7 +181,123 @@ impl QueryInstance {
             id,
             nome: format!("q{id}"),
             sql: String::new(),
+            cursor: 0,
         }
+    }
+
+    /// Quantos caracteres há no texto.
+    fn tamanho(&self) -> usize {
+        self.sql.chars().count()
+    }
+
+    /// Prende o cursor dentro do texto.
+    fn fixar_cursor(&mut self) {
+        self.cursor = self.cursor.min(self.tamanho());
+    }
+
+    /// Deslocamento em bytes do cursor (o `String` indexa por bytes).
+    fn byte_indice(&self) -> usize {
+        self.sql
+            .char_indices()
+            .nth(self.cursor)
+            .map(|(indice, _)| indice)
+            .unwrap_or(self.sql.len())
+    }
+
+    /// Insere o texto na posição do cursor e anda para depois dele.
+    pub fn inserir(&mut self, texto: &str) {
+        self.fixar_cursor();
+        self.sql.insert_str(self.byte_indice(), texto);
+        self.cursor += texto.chars().count();
+    }
+
+    /// Apaga o caractere anterior ao cursor, se há.
+    pub fn apagar(&mut self) {
+        self.fixar_cursor();
+        if self.cursor == 0 {
+            return;
+        }
+        let fim = self.byte_indice();
+        let inicio = self.sql[..fim]
+            .char_indices()
+            .next_back()
+            .map(|(indice, _)| indice)
+            .unwrap_or(0);
+        self.sql.drain(inicio..fim);
+        self.cursor -= 1;
+    }
+
+    /// Apaga a palavra anterior ao cursor (`alt+backspace`), como nos campos.
+    pub fn apagar_palavra(&mut self) {
+        self.fixar_cursor();
+        let corte = self.byte_indice();
+        let mut antes = self.sql[..corte].to_owned();
+        delete_prev_word(&mut antes, 0);
+        self.cursor = antes.chars().count();
+        antes.push_str(&self.sql[corte..]);
+        self.sql = antes;
+    }
+
+    /// Anda um caractere para a esquerda, sem sair do texto.
+    pub fn esquerda(&mut self) {
+        self.cursor = self.cursor.saturating_sub(1);
+    }
+
+    /// Anda um caractere para a direita, sem passar do fim.
+    pub fn direita(&mut self) {
+        self.fixar_cursor();
+        self.cursor = (self.cursor + 1).min(self.tamanho());
+    }
+
+    /// Linha e coluna do cursor, em caracteres e a partir do zero.
+    pub fn linha_col(&self) -> (usize, usize) {
+        let mut linha = 0;
+        let mut coluna = 0;
+        for (indice, caractere) in self.sql.chars().enumerate() {
+            if indice == self.cursor {
+                break;
+            }
+            if caractere == '\n' {
+                linha += 1;
+                coluna = 0;
+            } else {
+                coluna += 1;
+            }
+        }
+        (linha, coluna)
+    }
+
+    /// Leva o cursor à linha e coluna pedidas, prendendo no fim da linha.
+    fn ir_para(&mut self, linha_destino: usize, coluna_destino: usize) {
+        let linhas: Vec<&str> = self.sql.split('\n').collect();
+        let linha = linha_destino.min(linhas.len().saturating_sub(1));
+        let coluna = coluna_destino.min(linhas[linha].chars().count());
+        self.cursor = linhas[..linha]
+            .iter()
+            .map(|texto| texto.chars().count() + 1)
+            .sum::<usize>()
+            + coluna;
+    }
+
+    /// Sobe uma linha mantendo a coluna, sem sair da primeira.
+    pub fn cima(&mut self) {
+        let (linha, coluna) = self.linha_col();
+        if linha > 0 {
+            self.ir_para(linha - 1, coluna);
+        }
+    }
+
+    /// Desce uma linha mantendo a coluna, sem passar da última.
+    pub fn baixo(&mut self) {
+        let (linha, coluna) = self.linha_col();
+        if linha + 1 < self.sql.split('\n').count() {
+            self.ir_para(linha + 1, coluna);
+        }
+    }
+
+    /// Leva o cursor ao fim do texto, para continuar digitando.
+    pub fn fim(&mut self) {
+        self.cursor = self.tamanho();
     }
 
     /// Resumo para a lista da direita: nome e tamanho ou `vazio`.

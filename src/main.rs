@@ -5,6 +5,10 @@ use std::io;
 use dbterm::app::App;
 use dbterm::config::url;
 use dbterm::history::migrar_chave;
+use ratatui::crossterm::event::{
+    KeyboardEnhancementFlags, PopKeyboardEnhancementFlags, PushKeyboardEnhancementFlags,
+};
+use ratatui::crossterm::execute;
 
 fn main() -> io::Result<()> {
     let url = match url(std::env::args().nth(1)) {
@@ -29,7 +33,19 @@ fn main() -> io::Result<()> {
             ));
         }
     };
+    // Teclado estendido (protocolo Kitty): sem ele o terminal entrega o
+    // `ctrl+enter` como um `enter` comum e o editor de query quebraria linha
+    // em vez de executar. Terminais sem suporte ignoram o pedido e seguem
+    // como antes.
+    let teclado_aprimorado = execute!(
+        io::stdout(),
+        PushKeyboardEnhancementFlags(KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES)
+    )
+    .is_ok();
     let result = App::new(url.as_deref()).run(&mut terminal);
+    if teclado_aprimorado {
+        let _ = execute!(io::stdout(), PopKeyboardEnhancementFlags);
+    }
     ratatui::restore();
     result
 }
