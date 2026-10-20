@@ -7,8 +7,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, Clear, Padding, Paragraph};
 
 use super::connect::mostrado;
-use super::text::largura;
 use crate::app::{ConnectionEdit, DatabaseEdit, Edit, Mode, TableEdit};
+use crate::view::largura;
 use crate::config::{DatabaseField, Field, TableField};
 use crate::db::{SqlPart, TableData, update_preview};
 use crate::theme;

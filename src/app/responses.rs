@@ -6,7 +6,7 @@ use ratatui::widgets::ListState;
 
 use crate::db::{Response, TableData};
 use crate::history::Saved;
-use crate::ui;
+use crate::view;
 
 use super::state::{DatabaseEdit, TableEdit};
 use super::App;
@@ -92,7 +92,7 @@ impl App {
                 let linhas = data.rows.len();
                 let colunas = data.columns.len();
                 self.current = Some(table);
-                self.larguras = ui::larguras(&data);
+                self.larguras = view::larguras(&data);
                 self.data = Some(data);
                 self.end_reached = linhas < limit;
                 self.loading_more = false;
@@ -138,7 +138,7 @@ impl App {
         }
         self.end_reached = data.rows.len() < limit;
         // A página nova pode trazer valores mais largos que os já vistos.
-        for (largura, nova) in self.larguras.iter_mut().zip(ui::larguras(&data))
+        for (largura, nova) in self.larguras.iter_mut().zip(view::larguras(&data))
         {
             *largura = (*largura).max(nova);
         }

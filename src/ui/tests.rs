@@ -812,7 +812,7 @@ fn grade_desenha_so_as_linhas_da_janela() {
             .collect(),
         primary_key: vec![0],
     });
-    app.larguras = super::larguras(app.data.as_ref().expect("grade"));
+    app.larguras = crate::view::larguras(app.data.as_ref().expect("grade"));
     app.table_state.select(Some(49));
 
     let terminal = terminal_de(&mut app, 100, 12);

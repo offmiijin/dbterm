@@ -1,6 +1,6 @@
-//! Medidas de texto: largura de exibição e corte com `…`.
+//! Corte de texto com `…`; a largura de exibição mora em `crate::view`.
 
-use ratatui::text::Span;
+use crate::view::largura;
 
 /// `Some(texto)` quando o valor não cabe na coluna: corta e marca com `…`.
 pub(super) fn fit(value: &str, limite: usize) -> Option<String> {
@@ -17,10 +17,4 @@ pub(super) fn fit(value: &str, limite: usize) -> Option<String> {
     }
     cortado.push('…');
     Some(cortado)
-}
-
-/// Largura de exibição, pela mesma conta que o `ratatui` usa ao desenhar —
-/// senão uma coluna com kanji fica mais estreita que o desenhado.
-pub(super) fn largura(texto: &str) -> usize {
-    Span::raw(texto).width()
 }

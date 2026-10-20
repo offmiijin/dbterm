@@ -6,8 +6,8 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::Paragraph;
 
 use super::banner;
-use super::text::largura;
 use crate::app::App;
+use crate::view::largura;
 use crate::config::{Connection, Field};
 use crate::theme;
 

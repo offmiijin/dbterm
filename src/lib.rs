@@ -12,3 +12,4 @@ pub mod history;
 mod keychain;
 pub mod theme;
 pub mod ui;
+mod view;
