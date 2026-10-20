@@ -36,6 +36,50 @@ use crate::ui;
 /// Espera máxima por um evento antes de redesenhar (e drenar o banco).
 const TICK: Duration = Duration::from_millis(50);
 
+/// Resultado da última execução do editor de query: o painel que abre na
+/// metade inferior do centro, com os registros buscados. Estado próprio
+/// (seleção, medidas, paginação) para não misturar com a grade de tabelas.
+#[derive(Debug, Default)]
+pub struct ResultadoQuery {
+    /// Base executada, para pedir as páginas de 200 em 200.
+    pub sql: String,
+    /// Tabela do primeiro `FROM`, quando dá para extrair; senão, `None` e
+    /// o título mostra só "consulta".
+    pub tabela: Option<String>,
+    /// Registros carregados até aqui; `None` enquanto a consulta vem.
+    pub data: Option<TableData>,
+    /// Seleção e rolagem vertical do painel.
+    pub state: TableState,
+    /// Largura natural de cada coluna, medida quando os dados mudam.
+    pub larguras: Vec<usize>,
+    /// Primeira coluna visível na rolagem horizontal.
+    pub hscroll: usize,
+    /// A consulta acabou: a última página veio com menos que o pedido.
+    pub end_reached: bool,
+    /// Há uma página a caminho: não vale pedir de novo a cada tecla.
+    pub loading_more: bool,
+}
+
+impl ResultadoQuery {
+    /// Quantos registros já estão no painel.
+    pub fn len(&self) -> usize {
+        self.data.as_ref().map_or(0, |data| data.rows.len())
+    }
+
+    /// Verdadeiro sem nenhum registro carregado.
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// Título do painel: tabela executada e registros carregados.
+    pub fn titulo(&self) -> String {
+        match self.tabela.as_deref() {
+            Some(tabela) => format!("resultado · {tabela} · {} registros", self.len()),
+            None => format!("resultado · consulta · {} registros", self.len()),
+        }
+    }
+}
+
 pub struct App {
     pub screen: Screen,
     /// Conexões rápidas salvas, da mais recente para a mais antiga.
@@ -89,6 +133,8 @@ pub struct App {
     /// Instância aberta no centro: o editor substitui a grade enquanto
     /// houver uma aqui. Abrir uma tabela limpa e volta à grade.
     pub active_query: Option<usize>,
+    /// Resultado da última execução do editor, no painel inferior.
+    pub query_result: Option<ResultadoQuery>,
     pub should_quit: bool,
     /// Seleção nas listas de conexões, bancos e tabelas. Só a do nível ativo
     /// aparece, mas cada uma guarda onde o usuário parou.
@@ -157,6 +203,7 @@ impl App {
             queries_state: ListState::default(),
             next_query: 1,
             active_query: None,
+            query_result: None,
             should_quit: false,
             connections_state: ListState::default(),
             databases_state: ListState::default(),

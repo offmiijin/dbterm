@@ -18,7 +18,7 @@ use ratatui::style::Style;
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, BorderType, List, ListItem, ListState, Paragraph, TableState};
 
-use crate::app::{App, Focus, Mode, QueryInstance, RightTab, Screen, Status};
+use crate::app::{App, Focus, Mode, QueryInstance, ResultadoQuery, RightTab, Screen, Status};
 use crate::db::TableData;
 use crate::history::Saved;
 use crate::theme;
@@ -31,8 +31,10 @@ const KEYS_WITH_EDIT: &str = "q sair · c/b/t/u nível · esc subir · e editar 
 const QUERIES_KEYS: &str =
     "q sair · c/b/t nível · esc subir · j/k mover · enter abrir · n nova · d apagar · g/G topo/fim";
 /// Teclas do editor de query no centro (tudo digita no rascunho).
-const QUERY_EDITOR_KEYS: &str =
-    "setas/ctrl+h,j,k,l movem · tab indenta · ctrl+enter executa · esc volta";
+const QUERY_EDITOR_KEYS: &str = "setas/ctrl+h,j,k,l movem · tab indenta · ctrl+enter executa · shift+tab resultados · esc volta";
+/// Teclas do painel de resultado abaixo do editor.
+const RESULTADO_KEYS: &str =
+    "q sair · esc editor · j/k mover · h/l rolar · g/G topo/fim · r executar";
 /// Teclas dos pop-ups de edição (conexão, banco e tabela).
 const POPUP_KEYS: &str = "ctrl+s salvar · esc cancelar";
 /// Teclas da lista de opções aberta sobre um pop-up de edição.
@@ -102,6 +104,7 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         queries,
         queries_state,
         active_query,
+        query_result,
         ..
     } = app;
 
@@ -147,6 +150,7 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
             *focus,
             database,
             active_query.and_then(|index| queries.get(index)),
+            query_result.as_mut(),
         );
     } else {
         let [side, main] =
@@ -179,6 +183,7 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
             *focus,
             database,
             active_query.and_then(|index| queries.get(index)),
+            query_result.as_mut(),
         );
     }
 
@@ -192,6 +197,12 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
             .as_ref()
             .is_some_and(|edit| edit.picker.is_some());
     let editor_aberto = active_query.and_then(|index| queries.get(index)).is_some();
+    // Com o editor aberto, o rodapé acompanha o painel visível (resultado);
+    // senão, a grade de tabelas.
+    let (dados_rodape, fim_rodape) = match (editor_aberto, query_result.as_ref()) {
+        (true, Some(result)) => (result.data.as_ref(), result.end_reached),
+        _ => (data.as_ref(), *end_reached),
+    };
     let teclas = if commands.is_some() {
         popup::commands_keys()
     } else if lista_aberta {
@@ -200,6 +211,8 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         popup::table_keys(edit)
     } else if connection_edit.is_some() || database_edit.is_some() {
         POPUP_KEYS
+    } else if *focus == Focus::Resultado {
+        RESULTADO_KEYS
     } else if editor_aberto && *focus == Focus::Data {
         QUERY_EDITOR_KEYS
     } else if *focus == Focus::Queries {
@@ -207,7 +220,7 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
     } else {
         keys(*mode, *focus)
     };
-    draw_footer(frame, footer, status, teclas, data, *end_reached);
+    draw_footer(frame, footer, status, teclas, dados_rodape, fim_rodape);
     popup::draw_overlays(
         frame,
         frame.area(),
@@ -237,7 +250,7 @@ fn draw_lateral_esquerda(
     focus: Focus,
 ) {
     let ativo = match focus {
-        Focus::Data | Focus::Queries => Focus::Tables,
+        Focus::Data | Focus::Queries | Focus::Resultado => Focus::Tables,
         outro => outro,
     };
     let [chips, lista] = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(area);
@@ -332,9 +345,21 @@ fn draw_centro(
     focus: Focus,
     database: &str,
     query_aberta: Option<&QueryInstance>,
+    resultado: Option<&mut ResultadoQuery>,
 ) {
+    // Com execução, o centro divide: editor em cima e resultado embaixo
+    // cobrindo todo o inferior; sem ela, o editor ocupa tudo.
     if let Some(query) = query_aberta {
-        draw_query_editor(frame, area, query, database, focus == Focus::Data);
+        match resultado {
+            Some(result) => {
+                let [acima, abaixo] =
+                    Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)])
+                        .areas(area);
+                draw_query_editor(frame, acima, query, database, focus == Focus::Data);
+                draw_resultado(frame, abaixo, result, focus == Focus::Resultado);
+            }
+            None => draw_query_editor(frame, area, query, database, focus == Focus::Data),
+        }
         return;
     }
     let [faixa, main] = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(area);
@@ -368,6 +393,39 @@ fn draw_centro(
             larguras,
         },
         mode,
+        "dados",
+        "linhas",
+    );
+}
+
+/// Painel inferior do editor: os registros da última execução, com a tabela
+/// e a contagem no título. Sem dados ainda, o aviso de carregamento.
+fn draw_resultado(frame: &mut Frame, area: Rect, result: &mut ResultadoQuery, focused: bool) {
+    let base = match result.tabela.as_deref() {
+        Some(tabela) => format!("resultado · {tabela}"),
+        None => String::from("resultado · consulta"),
+    };
+    let Some(data) = result.data.as_ref() else {
+        let hint = Paragraph::new("carregando consulta…")
+            .block(panel(format!("{base} · 0 registros"), focused))
+            .style(theme::warning());
+        frame.render_widget(hint, area);
+        return;
+    };
+    grid::draw_data(
+        frame,
+        area,
+        Some(data),
+        focused,
+        &mut result.state,
+        grid::Posicao {
+            coluna: None,
+            rolagem: result.hscroll,
+            larguras: &result.larguras,
+        },
+        &Mode::Rows,
+        &base,
+        "registros",
     );
 }
 
@@ -401,7 +459,7 @@ fn draw_footer(
     area: Rect,
     status: &Status,
     keys: &str,
-    data: &Option<TableData>,
+    data: Option<&TableData>,
     end_reached: bool,
 ) {
     let (text, style) = match status {

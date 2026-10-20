@@ -41,6 +41,9 @@ fn table_column(index: usize) -> usize {
     index * RULE_STRIDE
 }
 
+/// A grade de dados: título parametrizado para servir à grade principal
+/// (`dados`, `linhas`) e ao painel de resultado (`resultado · t`, `registros`).
+#[allow(clippy::too_many_arguments)]
 pub(super) fn draw_data(
     frame: &mut Frame,
     area: Rect,
@@ -49,10 +52,12 @@ pub(super) fn draw_data(
     state: &mut TableState,
     posicao: Posicao,
     mode: &Mode,
+    titulo_base: &str,
+    unidade: &str,
 ) {
     let Some(data) = data else {
         let hint = Paragraph::new("selecione uma tabela e pressione enter")
-            .block(panel(String::from("dados"), focused))
+            .block(panel(String::from(titulo_base), focused))
             .style(theme::muted());
         frame.render_widget(hint, area);
         return;
@@ -67,9 +72,12 @@ pub(super) fn draw_data(
     let coluna = column.and_then(|index| data.columns.get(index));
     let mut title = match (mode, coluna) {
         (Mode::Columns | Mode::Edit | Mode::Confirm | Mode::ConfirmAgain, Some(nome)) => {
-            format!("dados · {} linhas · col: {nome}", data.rows.len())
+            format!(
+                "{titulo_base} · {} {unidade} · col: {nome}",
+                data.rows.len()
+            )
         }
-        _ => format!("dados · {} linhas", data.rows.len()),
+        _ => format!("{titulo_base} · {} {unidade}", data.rows.len()),
     };
     if janela.inicio > 0 || janela.fim() < data.columns.len() {
         // Nem todas as colunas estão na tela: diz quais estão.

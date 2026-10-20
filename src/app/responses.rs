@@ -121,6 +121,20 @@ impl App {
                 limit,
                 data,
             } => {
+                // Resposta da execução do editor: cai no painel inferior,
+                // não na grade (o `;` continua usando a grade).
+                if self
+                    .query_result
+                    .as_ref()
+                    .is_some_and(|result| result.sql == sql)
+                {
+                    if offset > 0 {
+                        self.append_result_page(limit, data);
+                    } else {
+                        self.apply_result(limit, data);
+                    }
+                    return;
+                }
                 if offset > 0 {
                     // Página seguinte da consulta: só junta ao que já está na tela.
                     self.append_query_page(sql, limit, data);
@@ -131,6 +145,9 @@ impl App {
             Response::Failed(message) => {
                 // Uma página que falhou não pode deixar a próxima travada.
                 self.loading_more = false;
+                if let Some(result) = self.query_result.as_mut() {
+                    result.loading_more = false;
+                }
                 if self.connecting {
                     // Falha ao conectar volta para o formulário com o motivo.
                     self.connecting = false;
@@ -186,6 +203,52 @@ impl App {
         self.mode = super::state::Mode::Rows;
         self.edit = None;
         self.focus = super::state::Focus::Data;
+        self.status = super::state::Status::Ready;
+    }
+
+    /// A primeira página da execução do editor vira o painel inferior: o
+    /// foco continua no editor e a seleção começa na primeira linha. Sem
+    /// colunas, o comando não devolveu linhas e o painel mostra o aviso.
+    /// Sem paginação automática, a primeira página é a última; senão o
+    /// painel pagina de 200 em 200 como a grade.
+    pub(super) fn apply_result(&mut self, limit: usize, data: TableData) {
+        let Some(result) = self.query_result.as_mut() else {
+            return;
+        };
+        result.loading_more = false;
+        if data.columns.is_empty() {
+            result.data = None;
+            result.end_reached = true;
+            self.status =
+                super::state::Status::Notice(String::from("consulta executada (sem retorno)"));
+            return;
+        }
+        let linhas = data.rows.len();
+        let paginada = consulta_paginavel(&result.sql);
+        result.larguras = view::larguras(&data);
+        result.data = Some(data);
+        result.end_reached = !paginada || linhas < limit;
+        result
+            .state
+            .select(if linhas == 0 { None } else { Some(0) });
+        result.hscroll = 0;
+        self.status = super::state::Status::Ready;
+    }
+
+    /// Junta a página seguinte ao painel de resultado, se ainda for a mesma
+    /// execução.
+    pub(super) fn append_result_page(&mut self, limit: usize, data: TableData) {
+        let Some(result) = self.query_result.as_mut() else {
+            return;
+        };
+        result.loading_more = false;
+        result.end_reached = data.rows.len() < limit;
+        for (largura, nova) in result.larguras.iter_mut().zip(view::larguras(&data)) {
+            *largura = (*largura).max(nova);
+        }
+        if let Some(atual) = result.data.as_mut() {
+            atual.rows.extend(data.rows);
+        }
         self.status = super::state::Status::Ready;
     }
 

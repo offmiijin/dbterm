@@ -1,4 +1,13 @@
+use super::super::ops::tabela_do_sql;
 use super::*;
+
+fn abre_editor_com(app: &mut App, sql: &str) {
+    app.on_key(tecla('u'));
+    app.on_key(tecla('n'));
+    for caractere in sql.chars() {
+        app.on_key(tecla(caractere));
+    }
+}
 
 #[test]
 fn u_vai_para_as_queries_sem_criar_nada() {
@@ -118,7 +127,7 @@ fn tab_indenta_com_dois_espacos() {
 }
 
 #[test]
-fn ctrl_enter_executa_e_mostra_a_grade() {
+fn ctrl_enter_executa_sem_fechar_o_editor() {
     let mut app = app_com_grade();
     app.on_key(tecla('u'));
     app.on_key(tecla('n'));
@@ -127,8 +136,11 @@ fn ctrl_enter_executa_e_mostra_a_grade() {
     }
     app.on_key(ctrl_enter());
 
-    assert!(!app.is_query_editor(), "o editor fecha para a grade");
-    assert_eq!(app.active_query, None);
+    assert!(app.is_query_editor(), "o editor continua aberto");
+    assert_eq!(app.active_query, Some(0));
+    let result = app.query_result.as_ref().expect("painel criado");
+    assert_eq!(result.sql, "select 1");
+    assert!(result.data.is_none(), "registros ainda vindo");
     assert_eq!(app.queries[0].sql, "select 1", "texto preservado");
     assert!(matches!(app.status, Status::Loading(ref o) if o == "consulta"));
 }
@@ -159,7 +171,7 @@ fn ctrl_enter_fora_do_select_falha_sem_fechar_o_editor() {
 }
 
 #[test]
-fn executar_abre_os_registros_na_tela_de_dados() {
+fn executar_abre_os_registros_no_painel_inferior() {
     let mut app = app_com_grade();
     app.on_key(tecla('u'));
     app.on_key(tecla('n'));
@@ -167,7 +179,7 @@ fn executar_abre_os_registros_na_tela_de_dados() {
         app.on_key(tecla(caractere));
     }
     app.on_key(ctrl_enter());
-    assert!(!app.is_query_editor());
+    assert!(app.is_query_editor());
 
     app.on_response(Response::Query {
         sql: String::from("select * from users"),
@@ -180,9 +192,10 @@ fn executar_abre_os_registros_na_tela_de_dados() {
             primary_key: Vec::new(),
         },
     });
-    assert!(app.focus == Focus::Data);
-    assert!(app.data.is_some(), "os registros aparecem na grade");
-    assert_eq!(app.query_sql.as_deref(), Some("select * from users"));
+    let result = app.query_result.as_ref().expect("painel preenchido");
+    assert_eq!(result.len(), 1, "os registros aparecem no painel");
+    assert_eq!(result.tabela.as_deref(), Some("users"));
+    assert!(app.query_sql.is_none(), "a grade principal fica intacta");
     assert!(matches!(app.status, Status::Ready));
 }
 
@@ -283,4 +296,105 @@ fn enter_no_meio_quebra_a_linha_no_cursor() {
     app.on_key(KeyEvent::from(KeyCode::Enter));
     assert_eq!(app.queries[0].sql, "a\nc");
     assert_eq!(app.queries[0].cursor, 2);
+}
+
+#[test]
+fn tabela_do_sql_mostra_a_tabela_do_from() {
+    assert_eq!(
+        tabela_do_sql("SELECT * FROM users WHERE id = 1"),
+        Some(String::from("users"))
+    );
+    assert_eq!(
+        tabela_do_sql("select * from `app`.`users`"),
+        Some(String::from("users"))
+    );
+    assert_eq!(
+        tabela_do_sql("WITH c AS (SELECT 1) SELECT * FROM t"),
+        Some(String::from("t"))
+    );
+    assert_eq!(tabela_do_sql("SELECT 1"), None);
+    assert_eq!(tabela_do_sql("SELECT * FROM (SELECT 1)"), None);
+}
+
+/// Executa no editor e devolve o app com a primeira página cheia no painel.
+fn app_com_resultado(base: &str) -> App {
+    let mut app = app_com_grade();
+    abre_editor_com(&mut app, base);
+    app.on_key(ctrl_enter());
+    app.on_response(Response::Query {
+        sql: base.to_string(),
+        offset: 0,
+        limit: ROW_LIMIT,
+        data: TableData {
+            columns: vec![String::from("id")],
+            kinds: vec![ColumnKind::Number],
+            rows: (1..=ROW_LIMIT).map(|n| vec![n.to_string()]).collect(),
+            primary_key: Vec::new(),
+        },
+    });
+    app
+}
+
+#[test]
+fn shift_tab_foca_o_resultado_e_esc_volta_ao_editor() {
+    let mut app = app_com_resultado("select * from users");
+    assert!(app.focus == Focus::Data);
+
+    app.on_key(KeyEvent::from(KeyCode::BackTab));
+    assert!(app.focus == Focus::Resultado);
+    assert_eq!(
+        app.query_result.as_ref().and_then(|r| r.state.selected()),
+        Some(0)
+    );
+
+    app.on_key(KeyEvent::from(KeyCode::Esc));
+    assert!(app.focus == Focus::Data);
+    assert!(app.is_query_editor());
+}
+
+#[test]
+fn shift_tab_sem_resultado_nao_sai_do_editor() {
+    let mut app = app_com_grade();
+    abre_editor_com(&mut app, "select 1");
+    app.on_key(KeyEvent::from(KeyCode::BackTab));
+    assert!(app.focus == Focus::Data);
+}
+
+#[test]
+fn j_no_resultado_anda_e_puxa_a_pagina_seguinte() {
+    let mut app = app_com_resultado("select * from users");
+    app.on_key(KeyEvent::from(KeyCode::BackTab));
+
+    app.on_key(KeyEvent::from(KeyCode::Char('G')));
+    let result = app.query_result.as_ref().expect("painel");
+    assert_eq!(result.state.selected(), Some(ROW_LIMIT - 1));
+    assert!(result.loading_more, "encostou no fim: pede mais 200");
+    assert!(matches!(app.status, Status::Loading(ref o) if o == "consulta"));
+
+    app.on_response(Response::Query {
+        sql: String::from("select * from users"),
+        offset: ROW_LIMIT,
+        limit: ROW_LIMIT,
+        data: TableData {
+            columns: vec![String::from("id")],
+            kinds: vec![ColumnKind::Number],
+            rows: vec![vec![String::from("201")]],
+            primary_key: Vec::new(),
+        },
+    });
+    let result = app.query_result.as_ref().expect("painel");
+    assert_eq!(result.len(), ROW_LIMIT + 1);
+    assert!(result.end_reached, "página curta fecha a consulta");
+    assert!(!result.loading_more);
+}
+
+#[test]
+fn r_no_resultado_reexecuta_a_query() {
+    let mut app = app_com_resultado("select * from users");
+    app.on_key(KeyEvent::from(KeyCode::BackTab));
+    app.on_key(tecla('r'));
+
+    let result = app.query_result.as_ref().expect("painel");
+    assert!(result.data.is_none(), "o painel limpa para a nova busca");
+    assert!(matches!(app.status, Status::Loading(ref o) if o == "consulta"));
 }

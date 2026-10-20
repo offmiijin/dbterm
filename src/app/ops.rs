@@ -93,9 +93,9 @@ impl App {
     }
 
     /// `ctrl+enter` no editor: executa o SQL da instância aberta, com a
-    /// mesma validação do `;` (só `SELECT`). O resultado aparece na grade
-    /// como na busca — o editor fecha, mas o texto fica na instância. Com
-    /// o rascunho vazio, só avisa em vez de executar.
+    /// mesma validação do `;` (só `SELECT`). O editor continua aberto e o
+    /// resultado aparece no painel inferior, de 200 em 200. Com o rascunho
+    /// vazio, só avisa em vez de executar.
     pub(super) fn execute_current_query(&mut self) {
         let Some(index) = self.active_query else {
             return;
@@ -115,12 +115,47 @@ impl App {
                 return;
             }
         };
-        self.active_query = None;
-        self.limpar_grade();
+        self.query_result = Some(super::ResultadoQuery {
+            sql: base.clone(),
+            tabela: tabela_do_sql(&base),
+            ..super::ResultadoQuery::default()
+        });
         self.status = super::state::Status::Loading(String::from("consulta"));
         self.db.request(Request::Query {
             sql: base,
             offset: 0,
+            limit: ROW_LIMIT,
+        });
+    }
+
+    /// Pede a página seguinte do painel de resultado quando a seleção
+    /// encosta na última linha carregada.
+    pub(super) fn load_next_result_page(&mut self) {
+        let Some(result) = self.query_result.as_ref() else {
+            return;
+        };
+        if result.loading_more || result.end_reached {
+            return;
+        }
+        let Some(data) = result.data.as_ref() else {
+            return;
+        };
+        let Some(selecionada) = result.state.selected() else {
+            return;
+        };
+        if selecionada + 1 < data.rows.len() {
+            return;
+        }
+        let Some(result) = self.query_result.as_mut() else {
+            return;
+        };
+        result.loading_more = true;
+        let sql = result.sql.clone();
+        let offset = result.len();
+        self.status = super::state::Status::Loading(String::from("consulta"));
+        self.db.request(Request::Query {
+            sql,
+            offset,
             limit: ROW_LIMIT,
         });
     }
@@ -242,6 +277,7 @@ impl App {
         let index = self.queries.len() - 1;
         self.queries_state.select(Some(index));
         self.active_query = Some(index);
+        self.query_result = None;
         self.focus = super::state::Focus::Data;
         self.mode = super::state::Mode::Rows;
         self.column = None;
@@ -259,6 +295,7 @@ impl App {
         };
         query.fim();
         self.active_query = Some(index);
+        self.query_result = None;
         self.focus = super::state::Focus::Data;
         self.mode = super::state::Mode::Rows;
         self.column = None;
@@ -273,6 +310,8 @@ impl App {
             return;
         }
         self.queries.remove(index);
+        // O painel inferior é da execução atual: sem ela, ele sai junto.
+        self.query_result = None;
         if self.queries.is_empty() {
             self.queries_state = ratatui::widgets::ListState::default();
             self.active_query = None;
@@ -519,6 +558,7 @@ impl App {
     /// tabela também fecha o editor de query, que volta a ser a grade.
     pub(super) fn load(&mut self, table: String) {
         self.active_query = None;
+        self.query_result = None;
         self.status = super::state::Status::Loading(table.clone());
         self.loading_more = false;
         self.end_reached = false;
@@ -616,6 +656,82 @@ pub(super) fn expandir_sql(sql: &str, tabela: Option<&str>) -> Result<String, St
         "SELECT * FROM `{}` WHERE {condicao}",
         tabela.replace('`', "``")
     ))
+}
+
+/// Tabela do primeiro `FROM` para o título do painel de resultado: o nome
+/// sem crase e sem o schema (`db.users` vira `users`). Sem `FROM` com
+/// tabela (ex.: `SELECT 1`, subconsulta), volta `None` e o título mostra
+/// só a consulta.
+pub(super) fn tabela_do_sql(sql: &str) -> Option<String> {
+    let simbolos: Vec<char> = sql.chars().collect();
+    let mut i = 0;
+    while i < simbolos.len() {
+        let caractere = simbolos[i];
+        if caractere.is_ascii_alphabetic() || caractere == '_' {
+            let inicio = i;
+            while i < simbolos.len()
+                && (simbolos[i].is_ascii_alphanumeric() || simbolos[i] == '_' || simbolos[i] == '$')
+            {
+                i += 1;
+            }
+            let palavra: String = simbolos[inicio..i].iter().collect();
+            if palavra.eq_ignore_ascii_case("from")
+                && let Some(tabela) = ler_tabela(&simbolos, &mut i)
+            {
+                return Some(tabela);
+            }
+        } else {
+            i += 1;
+        }
+    }
+    None
+}
+
+/// Lê o nome da tabela onde `i` parou após o `FROM`: pula espaços e monta
+/// os segmentos (com ou sem crase); `(` — subconsulta — não é tabela e
+/// devolve `None` para a busca seguir no próximo `FROM`.
+fn ler_tabela(simbolos: &[char], i: &mut usize) -> Option<String> {
+    while *i < simbolos.len() && simbolos[*i].is_whitespace() {
+        *i += 1;
+    }
+    let mut partes = Vec::new();
+    loop {
+        while *i < simbolos.len() && simbolos[*i].is_whitespace() {
+            *i += 1;
+        }
+        let parte = if simbolos.get(*i) == Some(&'`') {
+            *i += 1;
+            let inicio = *i;
+            while *i < simbolos.len() && simbolos[*i] != '`' {
+                *i += 1;
+            }
+            let parte: String = simbolos[inicio..*i].iter().collect();
+            if simbolos.get(*i) == Some(&'`') {
+                *i += 1;
+            }
+            parte
+        } else {
+            let inicio = *i;
+            while *i < simbolos.len()
+                && (simbolos[*i].is_ascii_alphanumeric()
+                    || simbolos[*i] == '_'
+                    || simbolos[*i] == '$')
+            {
+                *i += 1;
+            }
+            simbolos[inicio..*i].iter().collect()
+        };
+        if parte.is_empty() {
+            break;
+        }
+        partes.push(parte);
+        if simbolos.get(*i) == Some(&'.') {
+            *i += 1;
+            continue;
+        }
+        break;
+    }
+    partes.pop()
 }
 
 /// Igual ao do `db`: a palavra abre o texto com fronteira depois dela.

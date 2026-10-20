@@ -30,11 +30,14 @@ pub enum Focus {
     Data,
     /// Lista de queries na lateral direita.
     Queries,
+    /// Painel de resultado abaixo do editor de query.
+    Resultado,
 }
 
 impl Focus {
     /// O nível anterior da cascata; `None` na conexão, a raiz. As queries
-    /// voltam às tabelas, de onde o usuário veio.
+    /// voltam às tabelas, de onde o usuário veio; o resultado volta ao
+    /// editor, logo acima dele.
     pub fn above(self) -> Option<Focus> {
         match self {
             Focus::Connections => None,
@@ -42,6 +45,7 @@ impl Focus {
             Focus::Tables => Some(Focus::Databases),
             Focus::Data => Some(Focus::Tables),
             Focus::Queries => Some(Focus::Tables),
+            Focus::Resultado => Some(Focus::Data),
         }
     }
 }

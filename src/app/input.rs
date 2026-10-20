@@ -401,6 +401,12 @@ impl App {
                     query.inserir("  ");
                 }
             }
+            // `shift+tab` desce ao painel de resultado, quando há um.
+            KeyCode::BackTab => {
+                if self.query_result.is_some() {
+                    self.focus = Focus::Resultado;
+                }
+            }
             KeyCode::Backspace => {
                 if let Some(query) = self.query_mut() {
                     if is_alt_backspace(key) {
@@ -455,6 +461,11 @@ impl App {
             self.on_key_queries(key);
             return;
         }
+        // No painel de resultado, navegação dos registros e volta ao editor.
+        if self.focus == Focus::Resultado {
+            self.on_key_resultado(key);
+            return;
+        }
         match key.code {
             KeyCode::Char('q') => self.ask_quit(),
             // `esc` sobe um nível da cascata conexões → bancos → tabelas →
@@ -491,11 +502,48 @@ impl App {
                 Focus::Databases => self.use_selected_database(),
                 Focus::Tables => self.open_selected_table(),
                 Focus::Data => self.enter_columns(),
-                // As queries saem cedo em `on_key_queries`; aqui é inalcançável.
-                Focus::Queries => {}
+                // Queries e resultado saem cedo em handlers próprios.
+                Focus::Queries | Focus::Resultado => {}
             },
             _ => {}
         }
+    }
+
+    /// Painel inferior de resultado: `j`/`k` andam nos registros (encostar
+    /// na última linha puxa a página seguinte de 200), `h`/`l` rolam as
+    /// colunas, `r` reexecuta a query e o `esc` volta ao editor acima.
+    fn on_key_resultado(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char('q') => self.ask_quit(),
+            KeyCode::Esc | KeyCode::BackTab => self.focus = Focus::Data,
+            KeyCode::Char('c') => self.focus_level(Focus::Connections),
+            KeyCode::Char('b') => self.focus_level(Focus::Databases),
+            KeyCode::Char('t') => self.focus_level(Focus::Tables),
+            KeyCode::Char('u') => self.focus_level(Focus::Queries),
+            KeyCode::Left | KeyCode::Char('h') => self.rolar_resultado(-1),
+            KeyCode::Right | KeyCode::Char('l') => self.rolar_resultado(1),
+            KeyCode::Down | KeyCode::Char('j') => self.move_selection(1),
+            KeyCode::Up | KeyCode::Char('k') => self.move_selection(-1),
+            KeyCode::PageDown => self.move_selection(PAGE),
+            KeyCode::PageUp => self.move_selection(-PAGE),
+            KeyCode::Char('g') => self.select_edge(false),
+            KeyCode::Char('G') => self.select_edge(true),
+            KeyCode::Char('r') => self.execute_current_query(),
+            _ => {}
+        }
+    }
+
+    /// Rola as colunas do painel de resultado na horizontal.
+    fn rolar_resultado(&mut self, delta: isize) {
+        let Some(result) = self.query_result.as_mut() else {
+            return;
+        };
+        let len = result.data.as_ref().map_or(0, |data| data.columns.len());
+        if len == 0 {
+            return;
+        }
+        let atual = result.hscroll.min(len - 1);
+        result.hscroll = (atual as isize + delta).clamp(0, len as isize - 1) as usize;
     }
 
     /// Lista da direita: `j`/`k` andam, `enter` abre o editor no centro,
@@ -707,6 +755,22 @@ impl App {
                 let next = step(self.queries_state.selected(), delta, self.queries.len());
                 self.queries_state.select(next);
             }
+            Focus::Resultado => {
+                let len = self.query_result.as_ref().map_or(0, |result| result.len());
+                let atual = self
+                    .query_result
+                    .as_ref()
+                    .and_then(|result| result.state.selected());
+                let next = step(atual, delta, len);
+                if let Some(result) = self.query_result.as_mut() {
+                    result.state.select(next);
+                }
+                // Como na grade: só pede a página seguinte quando a seleção
+                // andou de verdade até a última linha carregada.
+                if next != atual {
+                    self.load_next_result_page();
+                }
+            }
             Focus::Data => {
                 let len = self.row_count();
                 let atual = self.table_state.selected();
@@ -747,6 +811,23 @@ impl App {
                 if !self.queries.is_empty() {
                     self.queries_state
                         .select(Some(if last { self.queries.len() - 1 } else { 0 }));
+                }
+            }
+            Focus::Resultado => {
+                let len = self.query_result.as_ref().map_or(0, |result| result.len());
+                if len > 0 {
+                    let destino = if last { len - 1 } else { 0 };
+                    let andou = self
+                        .query_result
+                        .as_ref()
+                        .and_then(|result| result.state.selected())
+                        != Some(destino);
+                    if let Some(result) = self.query_result.as_mut() {
+                        result.state.select(Some(destino));
+                    }
+                    if andou {
+                        self.load_next_result_page();
+                    }
                 }
             }
             Focus::Data => {

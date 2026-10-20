@@ -1,4 +1,34 @@
 use super::*;
+use crate::app::ResultadoQuery;
+
+/// App com o editor aberto e o painel de resultado preenchido com 1 linha.
+fn app_com_resultado() -> App {
+    let mut app = app_com_dados();
+    app.new_query();
+    if let Some(query) = app.queries.get_mut(0) {
+        query.sql = String::from("SELECT * FROM users");
+        query.fim();
+    }
+    app.query_result = Some(ResultadoQuery {
+        sql: String::from("SELECT * FROM users"),
+        tabela: Some(String::from("users")),
+        data: Some(TableData {
+            columns: vec![String::from("id")],
+            kinds: vec![ColumnKind::Number],
+            rows: vec![vec![String::from("1")]],
+            primary_key: Vec::new(),
+        }),
+        larguras: vec![2],
+        end_reached: true,
+        ..ResultadoQuery::default()
+    });
+    app.query_result
+        .as_mut()
+        .expect("painel")
+        .state
+        .select(Some(0));
+    app
+}
 
 #[test]
 fn lateral_direita_mostra_a_aba_queries_com_as_instancias() {
@@ -109,4 +139,29 @@ fn cursor_do_editor_inverte_o_caractere() {
     assert_eq!(celula.symbol(), "q");
     assert_eq!(celula.fg, crate::theme::BASE);
     assert_eq!(celula.bg, crate::theme::MAUVE);
+}
+
+#[test]
+fn execucao_abre_o_resultado_embaixo_do_editor() {
+    let tela = screen_at(&mut app_com_resultado(), 130);
+    // Editor em cima, com o SQL; resultado embaixo, com tabela e contagem.
+    assert!(tela.contains("SELECT * FROM users"), "{tela}");
+    assert!(tela.contains("resultado · users · 1 registros"), "{tela}");
+    assert!(tela.contains("1 registros"), "{tela}");
+    // A grade principal não aparece: o centro é só editor + resultado.
+    assert!(!tela.contains("dados ·"), "{tela}");
+}
+
+#[test]
+fn sem_dados_o_resultado_mostra_o_carregamento() {
+    let mut app = app_com_dados();
+    app.new_query();
+    app.query_result = Some(ResultadoQuery {
+        sql: String::from("SELECT * FROM users"),
+        tabela: Some(String::from("users")),
+        ..ResultadoQuery::default()
+    });
+    let tela = screen_at(&mut app, 130);
+    assert!(tela.contains("resultado · users · 0 registros"), "{tela}");
+    assert!(tela.contains("carregando consulta"), "{tela}");
 }
