@@ -128,6 +128,26 @@ fn sem_busca_nao_ha_linha_de_sql() {
 }
 
 #[test]
+fn linha_do_sql_tem_icone_e_cores_da_execucao() {
+    let mut app = app_com_dados();
+    app.query_sql = Some(String::from(
+        "SELECT * FROM objetos WHERE cod_empresa = 189",
+    ));
+    let terminal = terminal_de(&mut app, 100, 12);
+    let buffer = terminal.backend().buffer();
+
+    // O ícone de tabela abre a linha, na cor de destaque.
+    let (x, y) = achar(buffer, "SELECT");
+    assert_eq!(buffer.cell((x - 2, y)).unwrap().symbol(), "\u{f0ce}");
+    assert_eq!(buffer.cell((x - 2, y)).unwrap().fg, crate::theme::MAUVE);
+
+    // Declaração e número saem nas cores do pop-up "Execução".
+    assert_eq!(buffer.cell((x, y)).unwrap().fg, crate::theme::MAUVE);
+    let (nx, _) = achar(buffer, "189");
+    assert_eq!(buffer.cell((nx, y)).unwrap().fg, crate::theme::PEACH);
+}
+
+#[test]
 fn grade_fica_na_mesma_linha_com_e_sem_busca() {
     // Sem busca, a faixa fica em branco mas ocupa a linha.
     let terminal = terminal_de(&mut app_com_dados(), 100, 12);

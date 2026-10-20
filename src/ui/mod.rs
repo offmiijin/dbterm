@@ -146,8 +146,24 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
     // sem busca fica em branco e a grade segue na mesma linha.
     let [faixa, main] = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(main);
     if let Some(sql) = query_sql.as_deref() {
-        let linha = text::fit(sql, faixa.width as usize).unwrap_or_else(|| sql.to_owned());
-        frame.render_widget(Paragraph::new(linha).style(theme::muted()), faixa);
+        // Ícone de tabela, realce como no "Execução" e fundo de destaque. O
+        // `…` do corte sai apagado, fora do texto realçado.
+        let icone = format!("{ICONE_TABELA} ");
+        let disponivel = (faixa.width as usize).saturating_sub(largura(&icone));
+        let cortado =
+            text::fit(sql, disponivel).map(|corte| corte.trim_end_matches('…').to_owned());
+        let texto = cortado.as_deref().unwrap_or(sql);
+        let mut spans = vec![Span::styled(icone, theme::accent())];
+        spans.extend(
+            text::realces(texto)
+                .into_iter()
+                .map(|(pedaco, papel)| Span::styled(pedaco, popup::parte_estilo(papel))),
+        );
+        if cortado.is_some() {
+            spans.push(Span::styled("…", theme::muted()));
+        }
+        let linha = Line::from(spans);
+        frame.render_widget(Paragraph::new(linha).style(theme::selected()), faixa);
     }
 
     grid::draw_data(

@@ -132,7 +132,7 @@ fn linha_query(pedacos: &[(String, SqlPart)]) -> Line<'static> {
 
 /// Cor de cada papel da query: declaração como o título, texto e número como
 /// literais da linguagem, `NULL` como o resto do que é secundário.
-fn parte_estilo(papel: SqlPart) -> Style {
+pub(in crate::ui) fn parte_estilo(papel: SqlPart) -> Style {
     match papel {
         SqlPart::Declaration => theme::accent(),
         SqlPart::Plain => theme::text(),
