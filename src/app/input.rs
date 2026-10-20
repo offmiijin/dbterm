@@ -362,7 +362,8 @@ impl App {
     /// Editor da query no centro: tudo digita no rascunho aberto (`enter`
     /// quebra linha, `tab` indenta com dois espaços) e o `esc` volta à lista
     /// de queries. `ctrl+enter` executa a query. Setas e `ctrl+h/j/k/l`
-    /// movem o cursor. Sem outros atalhos de letra: `q`, `c`... são texto.
+    /// movem o cursor; `ctrl+r` ou `ctrl+shift+j` descem ao painel de
+    /// resultado. Sem outros atalhos de letra: `q`, `c`... são texto.
     fn on_key_query_editor(&mut self, key: KeyEvent) {
         // `ctrl+enter` executa; o `main` liga o teclado estendido para ele
         // chegar distinto do `enter` comum (que quebra linha). Num terminal
@@ -371,17 +372,40 @@ impl App {
             self.execute_current_query();
             return;
         }
-        // `ctrl+h/j/k/l` movem como as setas; sem `ctrl`, a letra é texto.
+        // Com `ctrl` (e sem `alt`), a tecla é atalho em vez de texto:
+        // `ctrl+r` ou `ctrl+shift+j` descem ao resultado e `ctrl+h/j/k/l`
+        // movem o cursor. O `shift` chega no `J` maiúsculo com o teclado
+        // estendido; sem ele, cai no `j` comum e move como antes.
         if key.modifiers.contains(KeyModifiers::CONTROL)
             && !key.modifiers.contains(KeyModifiers::ALT)
-            && let Some(query) = self.query_mut()
         {
             match key.code {
-                KeyCode::Char('h') | KeyCode::Char('H') => query.esquerda(),
-                KeyCode::Char('l') | KeyCode::Char('L') => query.direita(),
-                KeyCode::Char('k') | KeyCode::Char('K') => query.cima(),
-                KeyCode::Char('j') | KeyCode::Char('J') => query.baixo(),
-                _ => return,
+                KeyCode::Char('r') | KeyCode::Char('R') | KeyCode::Char('J') => {
+                    if self.query_result.is_some() {
+                        self.focus = Focus::Resultado;
+                    }
+                }
+                KeyCode::Char('h') | KeyCode::Char('H') => {
+                    if let Some(query) = self.query_mut() {
+                        query.esquerda();
+                    }
+                }
+                KeyCode::Char('l') | KeyCode::Char('L') => {
+                    if let Some(query) = self.query_mut() {
+                        query.direita();
+                    }
+                }
+                KeyCode::Char('k') | KeyCode::Char('K') => {
+                    if let Some(query) = self.query_mut() {
+                        query.cima();
+                    }
+                }
+                KeyCode::Char('j') => {
+                    if let Some(query) = self.query_mut() {
+                        query.baixo();
+                    }
+                }
+                _ => {}
             }
             return;
         }
@@ -399,12 +423,6 @@ impl App {
                     && let Some(query) = self.query_mut()
                 {
                     query.inserir("  ");
-                }
-            }
-            // `shift+tab` desce ao painel de resultado, quando há um.
-            KeyCode::BackTab => {
-                if self.query_result.is_some() {
-                    self.focus = Focus::Resultado;
                 }
             }
             KeyCode::Backspace => {
@@ -515,7 +533,7 @@ impl App {
     fn on_key_resultado(&mut self, key: KeyEvent) {
         match key.code {
             KeyCode::Char('q') => self.ask_quit(),
-            KeyCode::Esc | KeyCode::BackTab => self.focus = Focus::Data,
+            KeyCode::Esc => self.focus = Focus::Data,
             KeyCode::Char('c') => self.focus_level(Focus::Connections),
             KeyCode::Char('b') => self.focus_level(Focus::Databases),
             KeyCode::Char('t') => self.focus_level(Focus::Tables),

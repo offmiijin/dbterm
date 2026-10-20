@@ -336,11 +336,11 @@ fn app_com_resultado(base: &str) -> App {
 }
 
 #[test]
-fn shift_tab_foca_o_resultado_e_esc_volta_ao_editor() {
+fn ctrl_r_foca_o_resultado_e_esc_volta_ao_editor() {
     let mut app = app_com_resultado("select * from users");
     assert!(app.focus == Focus::Data);
 
-    app.on_key(KeyEvent::from(KeyCode::BackTab));
+    app.on_key(ctrl('r'));
     assert!(app.focus == Focus::Resultado);
     assert_eq!(
         app.query_result.as_ref().and_then(|r| r.state.selected()),
@@ -353,17 +353,27 @@ fn shift_tab_foca_o_resultado_e_esc_volta_ao_editor() {
 }
 
 #[test]
-fn shift_tab_sem_resultado_nao_sai_do_editor() {
+fn ctrl_shift_j_foca_o_resultado() {
+    let mut app = app_com_resultado("select * from users");
+    // Com o teclado estendido, o `shift` chega no `J` maiúsculo.
+    app.on_key(KeyEvent::new(KeyCode::Char('J'), KeyModifiers::CONTROL));
+    assert!(app.focus == Focus::Resultado);
+}
+
+#[test]
+fn ir_ao_resultado_sem_execucao_nao_sai_do_editor() {
     let mut app = app_com_grade();
     abre_editor_com(&mut app, "select 1");
-    app.on_key(KeyEvent::from(KeyCode::BackTab));
+    app.on_key(ctrl('r'));
+    assert!(app.focus == Focus::Data);
+    app.on_key(KeyEvent::new(KeyCode::Char('J'), KeyModifiers::CONTROL));
     assert!(app.focus == Focus::Data);
 }
 
 #[test]
 fn j_no_resultado_anda_e_puxa_a_pagina_seguinte() {
     let mut app = app_com_resultado("select * from users");
-    app.on_key(KeyEvent::from(KeyCode::BackTab));
+    app.on_key(ctrl('r'));
 
     app.on_key(KeyEvent::from(KeyCode::Char('G')));
     let result = app.query_result.as_ref().expect("painel");
@@ -391,7 +401,7 @@ fn j_no_resultado_anda_e_puxa_a_pagina_seguinte() {
 #[test]
 fn r_no_resultado_reexecuta_a_query() {
     let mut app = app_com_resultado("select * from users");
-    app.on_key(KeyEvent::from(KeyCode::BackTab));
+    app.on_key(ctrl('r'));
     app.on_key(tecla('r'));
 
     let result = app.query_result.as_ref().expect("painel");
