@@ -86,7 +86,8 @@ impl CommandTab {
         }
     }
 
-    /// Tecla que abre a aba direto da navegação, sem passar pelo `ctrl+p`.
+    /// Prefixo que marca o comando no texto do pop-up: o `;` seleciona o SQL.
+    /// Cada comando futuro tem o seu.
     pub fn atalho(self) -> char {
         match self {
             CommandTab::Sql => ';',
@@ -114,9 +115,19 @@ impl Default for Commands {
 impl Commands {
     /// Abre o pop-up na primeira aba (SQL), já com o `;`.
     pub fn new() -> Self {
+        Self::with_input(String::from(";"))
+    }
+
+    /// Reabre o pop-up com o texto do buffer (o último comando executado).
+    pub fn with_input(input: String) -> Self {
+        let input = if input.is_empty() {
+            String::from(";")
+        } else {
+            input
+        };
         Self {
             tab: CommandTab::Sql,
-            input: String::from(";"),
+            input,
         }
     }
 

@@ -23,11 +23,9 @@ use crate::history::Saved;
 use crate::theme;
 use crate::view::largura;
 
-const KEYS: &str = "q sair · c/b/t nível · esc subir · j/k mover · enter abrir · h/l colunas · r recarregar · g/G topo/fim · ; sql";
+const KEYS: &str = "q sair · c/b/t nível · esc subir · j/k mover · enter abrir · h/l colunas · r recarregar · g/G topo/fim";
 /// Na cascata o `e` entra como ação de edição do nível ativo.
 const KEYS_WITH_EDIT: &str = "q sair · c/b/t nível · esc subir · e editar · j/k mover · enter abrir · r recarregar · g/G topo/fim";
-/// Na lista de tabelas o `;` abre o comando master direto na aba SQL.
-const KEYS_TABLES: &str = "q sair · c/b/t nível · esc subir · e editar · j/k mover · enter abrir · r recarregar · g/G topo/fim · ; sql";
 /// Teclas dos pop-ups de edição (conexão, banco e tabela).
 const POPUP_KEYS: &str = "ctrl+s salvar · esc cancelar";
 /// Teclas da lista de opções aberta sobre um pop-up de edição.
@@ -254,9 +252,9 @@ fn draw_footer(
 /// entra como ação de edição do nível ativo.
 fn keys(mode: Mode, focus: Focus) -> &'static str {
     match mode {
-        Mode::Rows if matches!(focus, Focus::Connections | Focus::Databases) => KEYS_WITH_EDIT,
-        // Na lista de tabelas o comando master (`;`) filtra os dados.
-        Mode::Rows if focus == Focus::Tables => KEYS_TABLES,
+        Mode::Rows if matches!(focus, Focus::Connections | Focus::Databases | Focus::Tables) => {
+            KEYS_WITH_EDIT
+        }
         Mode::Rows => KEYS,
         Mode::Columns => "h/l coluna · enter editar · esc voltar",
         Mode::Edit => "enter continuar · esc cancelar",

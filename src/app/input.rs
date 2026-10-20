@@ -50,11 +50,10 @@ impl App {
             self.on_key_commands(key);
             return;
         }
-        // `ctrl+p` abre o comando master e `;` vai direto para a aba SQL, a
-        // partir da navegação e das colunas, sem interromper uma edição ou
-        // confirmação em andamento. Só na tela de tabelas (lista ou
-        // registros): é lá que o SQL filtra os dados.
-        if (is_commands(key) || is_sql(key)) && self.pode_abrir_comandos() {
+        // `ctrl+p` abre o comando master a partir da navegação e das colunas,
+        // sem interromper uma edição ou confirmação em andamento. Só na tela
+        // de tabelas (lista ou registros): é lá que o SQL filtra os dados.
+        if is_commands(key) && self.pode_abrir_comandos() {
             self.open_commands();
             return;
         }
@@ -253,14 +252,18 @@ impl App {
     }
 
     /// Comando master: `tab` troca de aba, o texto entra no fim da linha e
-    /// `ctrl+enter` executa a aba ativa. `esc` fecha sem executar.
+    /// `enter` executa a aba ativa. `esc` fecha guardando o texto no buffer.
     fn on_key_commands(&mut self, key: KeyEvent) {
         if is_execute(key) {
             self.execute_commands();
             return;
         }
         match key.code {
-            KeyCode::Esc => self.commands = None,
+            KeyCode::Esc => {
+                if let Some(commands) = self.commands.take() {
+                    self.sql_buffer = commands.input;
+                }
+            }
             KeyCode::Tab => self.move_commands_tab(1),
             KeyCode::BackTab => self.move_commands_tab(-1),
             KeyCode::Backspace => {
@@ -610,15 +613,6 @@ fn is_save(key: KeyEvent) -> bool {
 fn is_commands(key: KeyEvent) -> bool {
     matches!(key.code, KeyCode::Char('p') | KeyCode::Char('P'))
         && key.modifiers.contains(KeyModifiers::CONTROL)
-}
-
-/// Atalho da aba SQL: o `;` puro (sem `ctrl`/`alt`) abre o comando master
-/// direto nela. Dentro do pop-up ele continua sendo texto.
-fn is_sql(key: KeyEvent) -> bool {
-    matches!(key.code, KeyCode::Char(';'))
-        && !key
-            .modifiers
-            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
 }
 
 /// Execução da aba ativa do comando master: `ctrl+enter`.

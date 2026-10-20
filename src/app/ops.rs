@@ -10,23 +10,28 @@ use super::App;
 use super::state::ConnectionEdit;
 
 impl App {
-    /// `ctrl+p`: abre o comando master na aba SQL, sempre com o `;` inicial.
+    /// `ctrl+p`: abre o comando master na aba SQL, com o último comando no
+    /// buffer (ou o `;` inicial, na primeira vez).
     pub(super) fn open_commands(&mut self) {
-        self.commands = Some(super::state::Commands::new());
+        self.commands = Some(super::state::Commands::with_input(self.sql_buffer.clone()));
     }
 
-    /// `ctrl+enter` no comando master: executa a aba ativa. Sem SQL, o pop-up
-    /// fica aberto para a correção.
+    /// `enter` no comando master: executa a aba ativa e guarda o texto no
+    /// buffer. Com o `;` puro, recarrega a tabela aberta, como o `r`.
     pub(super) fn execute_commands(&mut self) {
-        let Some(commands) = self.commands.as_ref() else {
+        let Some(commands) = self.commands.take() else {
             return;
         };
+        self.sql_buffer = commands.input.clone();
         let sql = commands.sql();
         if sql.is_empty() {
-            self.status = super::state::Status::Failed(String::from("informe o SQL"));
+            if let Some(table) = self.current.clone() {
+                self.load(table);
+            } else {
+                self.status = super::state::Status::Notice(String::from("nenhuma tabela aberta"));
+            }
             return;
         }
-        self.commands = None;
         self.status = super::state::Status::Loading(String::from("consulta"));
         self.db.request(Request::Query { sql });
     }
