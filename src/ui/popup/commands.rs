@@ -32,6 +32,9 @@ pub(crate) fn draw_commands(
     let mut lines = vec![abas(commands.tab)];
     lines.push(Line::from(popup_rule(area)).style(theme::muted()));
     lines.push(linha_comando(&commands.input, conteudo));
+    if let Some(linha) = linha_tabela(commands) {
+        lines.push(linha);
+    }
     lines.extend(linhas_sugestoes(commands, tables));
     lines.push(Line::from(popup_rule(area)).style(theme::muted()));
     lines.push(linha_acoes());
@@ -66,6 +69,21 @@ fn linha_comando(input: &str, comprimento: usize) -> Line<'static> {
         valor.push_str(&" ".repeat(comprimento - largura(&valor)));
     }
     Line::from(valor).style(theme::field())
+}
+
+/// Tabela aberta em que o SQL busca, fixada ao abrir o pop-up. Sem tabela,
+/// avisa. Só aparece na aba SQL; a busca de tabela não precisa dela.
+fn linha_tabela(commands: &Commands) -> Option<Line<'static>> {
+    if commands.tab != CommandTab::Sql {
+        return None;
+    }
+    match commands.tabela.as_deref() {
+        Some(tabela) => Some(Line::from(vec![
+            Span::styled("tabela ", theme::muted()),
+            Span::styled(tabela.to_owned(), theme::text()),
+        ])),
+        None => Some(Line::from("sem tabela aberta").style(theme::muted())),
+    }
 }
 
 /// A caixa de completar da busca de tabela: as que combinam com o que foi

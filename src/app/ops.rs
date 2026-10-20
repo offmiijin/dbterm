@@ -19,52 +19,87 @@ impl App {
     /// `;`/`#`: abre o comando master direto na aba do prefixo, só com o
     /// prefixo fixo.
     pub(super) fn open_commands_with(&mut self, tab: super::state::CommandTab) {
-        self.commands = Some(super::state::Commands::with_tab(tab));
+        self.mostrar_comandos(super::state::Commands::with_tab(tab));
+    }
+
+    /// Mostra o pop-up com a tabela aberta fixada: é nela que o SQL busca.
+    fn mostrar_comandos(&mut self, mut commands: super::state::Commands) {
+        commands.tabela = self.current.clone();
+        self.commands = Some(commands);
     }
 
     /// Mostra o pop-up de volta com o texto do buffer, na aba do prefixo.
     fn reopen_commands(&mut self) {
-        self.commands = Some(super::state::Commands::with_input(
+        self.mostrar_comandos(super::state::Commands::with_input(
             self.commands_buffer.clone(),
         ));
     }
 
     /// `enter` no comando master: executa a aba ativa e guarda o texto no
-    /// buffer. Com o `;` puro, recarrega a tabela aberta, como o `r`.
+    /// buffer. Com o `;` puro, reseta a tabela aberta (buffer limpo, 200 linhas).
     pub(super) fn execute_commands(&mut self) {
         let Some(commands) = self.commands.take() else {
             return;
         };
         self.commands_buffer = commands.input.clone();
         match commands.tab {
-            super::state::CommandTab::Sql => self.execute_sql(commands.sql()),
+            super::state::CommandTab::Sql => self.execute_sql(commands.sql(), commands.tabela),
             super::state::CommandTab::Table => self.execute_table(commands.table_query()),
         }
     }
 
-    /// Executa o SQL: vazio recarrega a tabela aberta, senão vai ao servidor.
-    /// Sem declaração (`cod_empresa = 1064`), vira `SELECT` com `WHERE` na
-    /// tabela aberta; a primeira página vem com 200 linhas.
-    fn execute_sql(&mut self, sql: String) {
+    /// Executa o SQL: vazio reseta a tabela aberta (buffer limpo, 200 linhas),
+    /// senão valida e busca — e a busca esvazia a grade na hora para entrar no
+    /// lugar do que estava no buffer.
+    fn execute_sql(&mut self, sql: String, tabela: Option<String>) {
         if sql.is_empty() {
             if let Some(table) = self.current.clone() {
-                self.load(table);
+                self.recarregar(table);
             } else {
                 self.status = super::state::Status::Notice(String::from("nenhuma tabela aberta"));
             }
             return;
         }
-        let base = match expandir_sql(&sql, self.current.as_deref()) {
+        let base = match expandir_sql(&sql, tabela.as_deref()) {
             Ok(base) => base,
             Err(message) => {
+                self.reopen_commands();
                 self.status = super::state::Status::Failed(message);
                 return;
             }
         };
-        self.query_sql = None;
+        self.limpar_grade();
         self.status = super::state::Status::Loading(String::from("consulta"));
         self.db.request(Request::Query {
             sql: base,
+            offset: 0,
+            limit: ROW_LIMIT,
+        });
+    }
+
+    /// Esvazia a grade para a busca entrar no lugar: os registros anteriores
+    /// saem do buffer na hora, e a resposta preenche do zero.
+    fn limpar_grade(&mut self) {
+        self.data = None;
+        self.larguras.clear();
+        self.table_state = ratatui::widgets::TableState::default();
+        self.column = None;
+        self.hscroll = 0;
+        self.end_reached = false;
+        self.loading_more = false;
+        self.query_sql = None;
+        self.edit = None;
+        self.mode = super::state::Mode::Rows;
+    }
+
+    /// Volta à tabela do zero com a página padrão: o reset (`;` vazio)
+    /// descarta o que estava no buffer em vez de preservar o volume já
+    /// carregado com `r` ou ao trocar de registro.
+    fn recarregar(&mut self, table: String) {
+        self.limpar_grade();
+        self.status = super::state::Status::Loading(table.clone());
+        self.db.request(Request::Rows {
+            table,
             offset: 0,
             limit: ROW_LIMIT,
         });
@@ -429,23 +464,27 @@ impl App {
     }
 }
 
-/// SQL completo, que vai ao servidor como digitado: `SELECT`, `WITH`, `SHOW`,
-/// escrita (`INSERT`/`UPDATE`/`DELETE`...), DDL e os utilitários (`USE`/`SET`).
+/// SQL que vai ao servidor como digitado: só `SELECT` (e `WITH...SELECT`).
+/// O resto (`SHOW`, escrita, DDL...) é recusado: o comando é só consulta.
 const SQL_COMPLETO: [&str; 17] = [
     "SELECT", "WITH", "SHOW", "DESCRIBE", "DESC", "EXPLAIN", "INSERT", "UPDATE", "DELETE",
     "REPLACE", "CREATE", "ALTER", "DROP", "TRUNCATE", "USE", "SET", "CALL",
 ];
 
-/// Sem declaração vira `SELECT * FROM <tabela aberta> WHERE <condição>`.
-/// Um `WHERE` na frente é opcional e sai da condição. Sem tabela aberta, ou
-/// sem condição depois do `WHERE`, volta o motivo para a UI mostrar.
+/// Só consulta: `SELECT` passa direto e, sem declaração, vira
+/// `SELECT * FROM <tabela fixada> WHERE <condição>` (o `WHERE` na frente é
+/// opcional e sai da condição). Sem tabela fixada, sem condição ou fora do
+/// `SELECT`, volta o motivo para a UI mostrar com o pop-up aberto.
 pub(super) fn expandir_sql(sql: &str, tabela: Option<&str>) -> Result<String, String> {
     let limpo = sql.trim();
+    if comeca_com(limpo, "SELECT") || comeca_com(limpo, "WITH") {
+        return Ok(limpo.to_owned());
+    }
     if SQL_COMPLETO
         .iter()
         .any(|palavra| comeca_com(limpo, palavra))
     {
-        return Ok(limpo.to_owned());
+        return Err(String::from("somente SELECT é permitido"));
     }
     let Some(tabela) = tabela else {
         return Err(String::from("nenhuma tabela aberta"));

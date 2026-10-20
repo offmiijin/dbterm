@@ -471,13 +471,22 @@ fn atalho_sql_completo_passa_direto() {
         expandir("WITH c AS (SELECT 1) SELECT * FROM c", None),
         Ok(String::from("WITH c AS (SELECT 1) SELECT * FROM c"))
     );
+}
+
+#[test]
+fn atalho_fora_do_select_e_recusado() {
+    let expandir = super::super::ops::expandir_sql;
     assert_eq!(
         expandir("SHOW TABLES", None),
-        Ok(String::from("SHOW TABLES"))
+        Err(String::from("somente SELECT é permitido"))
     );
     assert_eq!(
         expandir("UPDATE objetos SET nome = 'x' WHERE id = 1", None),
-        Ok(String::from("UPDATE objetos SET nome = 'x' WHERE id = 1"))
+        Err(String::from("somente SELECT é permitido"))
+    );
+    assert_eq!(
+        expandir("DELETE FROM objetos WHERE id = 1", Some("objetos")),
+        Err(String::from("somente SELECT é permitido"))
     );
 }
 
@@ -492,4 +501,62 @@ fn atalho_sem_tabela_ou_sem_condicao_falha() {
         expandir("where", Some("objetos")),
         Err(String::from("informe a condição"))
     );
+}
+
+#[test]
+fn abrir_o_popup_fixa_a_tabela_aberta() {
+    let mut app = app_navegando();
+    app.current = Some(String::from("objetos"));
+    app.on_key(ctrl('p'));
+    assert_eq!(
+        app.commands.as_ref().expect("pop-up aberto").tabela,
+        Some(String::from("objetos"))
+    );
+}
+
+#[test]
+fn sql_fora_do_select_mantem_o_popup_para_a_correcao() {
+    let mut app = app_navegando();
+    app.on_key(ctrl('p'));
+    for caractere in "SHOW TABLES".chars() {
+        app.on_key(tecla(caractere));
+    }
+    app.on_key(ctrl_enter());
+
+    assert_eq!(
+        app.commands.as_ref().expect("pop-up aberto").input,
+        ";SHOW TABLES"
+    );
+    assert!(matches!(app.status, Status::Failed(ref erro) if erro == "somente SELECT é permitido"));
+}
+
+#[test]
+fn busca_nova_esvazia_a_grade_na_hora() {
+    let mut app = app_com_grade();
+    assert!(app.data.is_some());
+    app.on_key(ctrl('p'));
+    for caractere in "select * from users".chars() {
+        app.on_key(tecla(caractere));
+    }
+    app.on_key(ctrl_enter());
+
+    assert!(app.commands.is_none(), "o pop-up fecha ao executar");
+    assert!(app.data.is_none(), "o buffer anterior sai na hora");
+    assert_eq!(app.row_count(), 0);
+    assert!(app.query_sql.is_none());
+    assert!(matches!(app.status, Status::Loading(ref o) if o == "consulta"));
+}
+
+#[test]
+fn reset_com_ponto_e_virgula_limpa_e_pede_200() {
+    // Mesmo com mais de uma página carregada, o reset volta ao padrão.
+    let mut app = grade_com("events", 2 * ROW_LIMIT);
+    app.on_key(ctrl('p'));
+    app.on_key(ctrl_enter());
+
+    assert!(app.commands.is_none(), "o pop-up fecha ao executar");
+    assert!(app.data.is_none(), "o buffer anterior sai na hora");
+    assert!(app.query_sql.is_none());
+    assert!(!app.end_reached);
+    assert!(matches!(app.status, Status::Loading(ref t) if t == "events"));
 }

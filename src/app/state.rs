@@ -130,6 +130,9 @@ const MAX_SUGESTOES: usize = 6;
 pub struct Commands {
     pub tab: CommandTab,
     pub input: String,
+    /// Tabela aberta na grade quando o pop-up abriu: é nela que o SQL busca.
+    /// Só contexto e exibição — a navegação não muda com o pop-up aberto.
+    pub tabela: Option<String>,
 }
 
 impl Default for Commands {
@@ -150,6 +153,7 @@ impl Commands {
         Self {
             tab,
             input: tab.atalho().to_string(),
+            tabela: None,
         }
     }
 
@@ -169,7 +173,11 @@ impl Commands {
             Some(primeiro) if CommandTab::from_prefix(primeiro).is_some() => input,
             _ => format!("{}{input}", CommandTab::Sql.atalho()),
         };
-        Self { tab, input }
+        Self {
+            tab,
+            input,
+            tabela: None,
+        }
     }
 
     /// Reescreve o prefixo do texto para o da aba ativa, levando o resto

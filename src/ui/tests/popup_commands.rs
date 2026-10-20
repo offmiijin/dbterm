@@ -8,6 +8,25 @@ fn app_com_comandos() -> App {
 }
 
 #[test]
+fn popup_sql_mostra_a_tabela_fixada() {
+    let mut app = app_com_dados();
+    let mut commands = Commands::new();
+    commands.tabela = Some(String::from("users"));
+    app.commands = Some(commands);
+    let tela = screen(&mut app);
+
+    assert!(tela.contains("tabela users"), "{tela}");
+}
+
+#[test]
+fn popup_sql_sem_tabela_avisa() {
+    let mut app = app_com_comandos();
+    let tela = screen(&mut app);
+
+    assert!(tela.contains("sem tabela aberta"), "{tela}");
+}
+
+#[test]
 fn popup_de_comandos_mostra_abas_prefixos_e_acoes() {
     let mut app = app_com_comandos();
     let tela = screen(&mut app);
