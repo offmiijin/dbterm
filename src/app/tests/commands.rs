@@ -592,3 +592,97 @@ fn prefixo_de_outra_aba_abre_limpo() {
     assert_eq!(commands.tab, crate::app::CommandTab::Table);
     assert_eq!(commands.input, "#");
 }
+
+fn app_com_tabelas() -> App {
+    let mut app = app_nas_tabelas();
+    app.tables = vec![
+        String::from("orders"),
+        String::from("products"),
+        String::from("profiles"),
+    ];
+    app.list_state.select(Some(0));
+    app
+}
+
+fn busca_pro(app: &mut App) {
+    app.on_key(tecla('#'));
+    for caractere in "pro".chars() {
+        app.on_key(tecla(caractere));
+    }
+}
+
+#[test]
+fn ctrl_j_desce_e_ctrl_k_sobe_na_caixa_sem_sair() {
+    let mut app = app_com_tabelas();
+    busca_pro(&mut app);
+    assert_eq!(app.commands.as_ref().expect("pop-up").sugestao, 0);
+
+    app.on_key(ctrl('j'));
+    assert_eq!(app.commands.as_ref().expect("pop-up").sugestao, 1);
+    // No fim da lista não anda mais.
+    app.on_key(ctrl('j'));
+    assert_eq!(app.commands.as_ref().expect("pop-up").sugestao, 1);
+
+    app.on_key(ctrl('k'));
+    assert_eq!(app.commands.as_ref().expect("pop-up").sugestao, 0);
+    // No topo não anda mais.
+    app.on_key(ctrl('k'));
+    assert_eq!(app.commands.as_ref().expect("pop-up").sugestao, 0);
+}
+
+#[test]
+fn ctrl_j_na_aba_sql_e_ignorado() {
+    let mut app = app_com_tabelas();
+    app.on_key(tecla(';'));
+    for caractere in "select 1".chars() {
+        app.on_key(tecla(caractere));
+    }
+    app.on_key(ctrl('j'));
+
+    let commands = app.commands.as_ref().expect("pop-up aberto");
+    assert_eq!(commands.input, ";select 1");
+    assert_eq!(commands.sugestao, 0);
+}
+
+#[test]
+fn digitar_reseta_o_destaque_da_caixa() {
+    let mut app = app_com_tabelas();
+    busca_pro(&mut app);
+    app.on_key(ctrl('j'));
+    assert_eq!(app.commands.as_ref().expect("pop-up").sugestao, 1);
+
+    app.on_key(tecla('x'));
+    let commands = app.commands.as_ref().expect("pop-up");
+    assert_eq!(commands.input, "#prox");
+    assert_eq!(commands.sugestao, 0);
+}
+
+#[test]
+fn enter_abre_a_sugestao_destacada() {
+    let mut app = app_com_tabelas();
+    busca_pro(&mut app);
+    app.on_key(ctrl('j'));
+    app.on_key(ctrl_enter());
+
+    assert!(app.commands.is_none(), "o pop-up fecha ao executar");
+    assert!(app.focus == Focus::Data, "cai direto nos registros");
+    assert_eq!(app.list_state.selected(), Some(2));
+    assert!(matches!(app.status, Status::Loading(ref t) if t == "profiles"));
+}
+
+#[test]
+fn nome_exato_tem_prioridade_sobre_o_destaque() {
+    let mut app = app_nas_tabelas();
+    app.tables = vec![String::from("users"), String::from("app_users")];
+    app.list_state.select(Some(0));
+    app.on_key(tecla('#'));
+    for caractere in "users".chars() {
+        app.on_key(tecla(caractere));
+    }
+    app.on_key(ctrl('j'));
+    app.on_key(ctrl_enter());
+
+    assert!(app.commands.is_none());
+    assert_eq!(app.list_state.selected(), Some(0));
+    assert!(matches!(app.status, Status::Loading(ref t) if t == "users"));
+}

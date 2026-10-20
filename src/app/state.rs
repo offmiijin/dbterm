@@ -133,6 +133,9 @@ pub struct Commands {
     /// Tabela aberta na grade quando o pop-up abriu: é nela que o SQL busca.
     /// Só contexto e exibição — a navegação não muda com o pop-up aberto.
     pub tabela: Option<String>,
+    /// Posição destacada na caixa de completar da aba Tabela (`ctrl+j` desce,
+    /// `ctrl+k` sobe); o `enter` abre ela quando não há nome exato.
+    pub sugestao: usize,
 }
 
 impl Default for Commands {
@@ -154,6 +157,7 @@ impl Commands {
             tab,
             input: tab.atalho().to_string(),
             tabela: None,
+            sugestao: 0,
         }
     }
 
@@ -177,6 +181,7 @@ impl Commands {
             tab,
             input,
             tabela: None,
+            sugestao: 0,
         }
     }
 
@@ -191,6 +196,7 @@ impl Commands {
             _ => self.input.clone(),
         };
         self.input = format!("{prefixo}{resto}");
+        self.sugestao = 0;
     }
 
     /// A consulta a executar: o texto sem o `;` inicial e sem espaços nas
@@ -229,6 +235,21 @@ impl Commands {
             .collect()
     }
 
+    /// Índice na lista de tabelas da sugestão destacada, se a caixa tem itens.
+    pub fn sugestao_indice(&self, tables: &[String]) -> Option<usize> {
+        self.suggestions(tables).get(self.sugestao).copied()
+    }
+
+    /// Anda na caixa de completar sem sair dela: `ctrl+j` desce e `ctrl+k`
+    /// sobe. Sem itens, volta ao topo.
+    pub fn mover_sugestao(&mut self, delta: isize, total: usize) {
+        if total == 0 {
+            self.sugestao = 0;
+            return;
+        }
+        self.sugestao = (self.sugestao as isize + delta).clamp(0, total as isize - 1) as usize;
+    }
+
     /// Digita no fim da linha, onde fica o cursor. Com só o prefixo na linha,
     /// digitar o prefixo de outro comando troca de aba em vez de acumular
     /// (ex.: `;` vira `#` e cai na Tabela); no resto, o prefixo é fixo e a
@@ -242,6 +263,7 @@ impl Commands {
             return;
         }
         self.input.push(caractere);
+        self.sugestao = 0;
     }
 
     /// Apaga o último caractere, sem nunca remover o prefixo fixo.
@@ -250,6 +272,7 @@ impl Commands {
             return;
         }
         self.input.pop();
+        self.sugestao = 0;
     }
 }
 

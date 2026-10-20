@@ -36,8 +36,9 @@ fn popup_de_comandos_mostra_abas_prefixos_e_acoes() {
     assert!(tela.contains("\u{f0ce} Tabela #"), "{tela}");
     assert!(tela.contains(";"), "{tela}");
     assert!(
-        tela.contains("ctrl+enter executar · tab aba · esc fechar"),
-        "{tela}"
+        screen_at(&mut app_com_comandos(), 100)
+            .contains("ctrl+enter executar · tab aba · ctrl+j/k sugestão · esc fechar"),
+        "rodapé com os atalhos"
     );
 }
 
@@ -72,6 +73,34 @@ fn busca_de_tabela_mostra_a_caixa_de_completar() {
     assert!(!tela.contains("orders"), "{tela}");
     // A primeira sugestão (`enter` abre ela) sai em destaque.
     assert!(tela.contains("❯ products"), "{tela}");
+    // A dica de navegação só aparece na Tabela.
+    assert!(
+        tela.contains("ctrl+j desce · ctrl+k sobe na caixa"),
+        "{tela}"
+    );
+}
+
+#[test]
+fn dica_de_navegacao_nao_aparece_no_sql() {
+    let tela = screen(&mut app_com_comandos());
+    assert!(!tela.contains("ctrl+j desce"), "{tela}");
+}
+
+#[test]
+fn destaque_da_caixa_acompanha_a_navegacao() {
+    let mut app = app_com_dados();
+    app.tables = vec![
+        String::from("orders"),
+        String::from("products"),
+        String::from("profiles"),
+    ];
+    let mut commands = Commands::with_input(String::from("#pro"));
+    commands.sugestao = 1;
+    app.commands = Some(commands);
+    let tela = screen(&mut app);
+
+    assert!(tela.contains("❯ profiles"), "{tela}");
+    assert!(!tela.contains("❯ products"), "{tela}");
 }
 
 #[test]

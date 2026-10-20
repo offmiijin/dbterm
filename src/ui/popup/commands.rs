@@ -16,7 +16,7 @@ use crate::view::largura;
 
 /// Teclas do comando master, como saem no rodapé.
 pub(crate) fn commands_keys() -> &'static str {
-    "ctrl+enter executar · tab aba · esc fechar"
+    "ctrl+enter executar · tab aba · ctrl+j/k sugestão · esc fechar"
 }
 
 pub(crate) fn draw_commands(
@@ -36,6 +36,9 @@ pub(crate) fn draw_commands(
         lines.push(linha);
     }
     lines.extend(linhas_sugestoes(commands, tables));
+    if let Some(linha) = linha_navegacao(commands) {
+        lines.push(linha);
+    }
     lines.push(Line::from(popup_rule(area)).style(theme::muted()));
     lines.push(linha_acoes());
     // O ícone (Nerd Font) acompanha o título dos pop-ups.
@@ -86,8 +89,16 @@ fn linha_tabela(commands: &Commands) -> Option<Line<'static>> {
     }
 }
 
+/// Dica de navegação da caixa de completar. Só na aba Tabela.
+fn linha_navegacao(commands: &Commands) -> Option<Line<'static>> {
+    if commands.tab != CommandTab::Table {
+        return None;
+    }
+    Some(Line::from("ctrl+j desce · ctrl+k sobe na caixa").style(theme::muted()))
+}
+
 /// A caixa de completar da busca de tabela: as que combinam com o que foi
-/// digitado, com a primeira (`enter` abre ela) em destaque.
+/// digitado, com a destacada (`ctrl+j`/`ctrl+k`, `enter` abre ela) em evidência.
 fn linhas_sugestoes(commands: &Commands, tables: &[String]) -> Vec<Line<'static>> {
     if commands.tab != CommandTab::Table {
         return Vec::new();
@@ -101,7 +112,7 @@ fn linhas_sugestoes(commands: &Commands, tables: &[String]) -> Vec<Line<'static>
         .enumerate()
         .map(|(posicao, &indice)| {
             let nome = tables.get(indice).cloned().unwrap_or_default();
-            if posicao == 0 {
+            if posicao == commands.sugestao {
                 Line::from(Span::styled(format!("❯ {nome}"), theme::selected()))
             } else {
                 Line::from(format!("  {nome}"))

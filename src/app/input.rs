@@ -260,9 +260,13 @@ impl App {
 
     /// Comando master: `tab` troca de aba, o texto entra no fim da linha e
     /// `enter` executa a aba ativa. `esc` fecha guardando o texto no buffer.
+    /// Na Tabela, `ctrl+j`/`ctrl+k` andam na caixa de completar.
     fn on_key_commands(&mut self, key: KeyEvent) {
         if is_execute(key) {
             self.execute_commands();
+            return;
+        }
+        if self.navegar_sugestao(key) {
             return;
         }
         match key.code {
@@ -306,6 +310,28 @@ impl App {
         };
         commands.tab = next(commands.tab, delta, &CommandTab::ALL);
         commands.apply_prefix();
+    }
+
+    /// `ctrl+j` desce e `ctrl+k` sobe na caixa de completar da busca de
+    /// tabela. Só na aba Tabela; no SQL (e sem `ctrl`) a tecla é ignorada.
+    fn navegar_sugestao(&mut self, key: KeyEvent) -> bool {
+        let delta = match key.code {
+            KeyCode::Char('j') | KeyCode::Char('J') => 1,
+            KeyCode::Char('k') | KeyCode::Char('K') => -1,
+            _ => return false,
+        };
+        if !key.modifiers.contains(KeyModifiers::CONTROL) {
+            return false;
+        }
+        let Some(commands) = self.commands.as_mut() else {
+            return false;
+        };
+        if commands.tab != CommandTab::Table {
+            return false;
+        }
+        let total = commands.suggestions(&self.tables).len();
+        commands.mover_sugestao(delta, total);
+        true
     }
 
     fn on_key_rows(&mut self, key: KeyEvent) {

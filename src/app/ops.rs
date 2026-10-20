@@ -55,7 +55,11 @@ impl App {
         self.commands_buffer = commands.input.clone();
         match commands.tab {
             super::state::CommandTab::Sql => self.execute_sql(commands.sql(), commands.tabela),
-            super::state::CommandTab::Table => self.execute_table(commands.table_query()),
+            super::state::CommandTab::Table => {
+                let busca = commands.table_query();
+                let destaque = commands.sugestao_indice(&self.tables);
+                self.execute_table(busca, destaque)
+            }
         }
     }
 
@@ -116,15 +120,16 @@ impl App {
         });
     }
 
-    /// `enter` na busca de tabela: abre a exata ou a primeira sugestão da
-    /// caixa de completar. Sem ela, o pop-up volta para a correção.
-    fn execute_table(&mut self, busca: String) {
+    /// `enter` na busca de tabela: abre a exata, a sugestão destacada na
+    /// caixa (`ctrl+j`/`ctrl+k`) ou, sem destaque, a primeira sugestão. Sem
+    /// ela, o pop-up volta para a correção.
+    fn execute_table(&mut self, busca: String, destaque: Option<usize>) {
         if busca.is_empty() {
             self.reopen_commands();
             self.status = super::state::Status::Failed(String::from("informe a tabela"));
             return;
         }
-        let Some(index) = self.find_table(&busca) else {
+        let Some(index) = self.find_table(&busca, destaque) else {
             self.reopen_commands();
             self.status = super::state::Status::Failed(format!("tabela não encontrada: {busca}"));
             return;
@@ -140,15 +145,16 @@ impl App {
         }
     }
 
-    /// Índice da tabela buscada: a exata (sem olhar maiúsculas) ou a primeira
-    /// sugestão da caixa de completar.
-    fn find_table(&self, busca: &str) -> Option<usize> {
+    /// Índice da tabela buscada: a exata (sem olhar maiúsculas), a sugestão
+    /// destacada na caixa ou, sem destaque, a primeira sugestão.
+    fn find_table(&self, busca: &str, destaque: Option<usize>) -> Option<usize> {
         if busca.is_empty() {
             return None;
         }
         self.tables
             .iter()
             .position(|tabela| tabela.eq_ignore_ascii_case(busca))
+            .or(destaque)
             .or_else(|| {
                 let busca = busca.to_lowercase();
                 self.tables
