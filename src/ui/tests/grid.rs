@@ -5,12 +5,12 @@ fn muitas_colunas_mostram_o_nome_do_cabecalho_inteiro() {
     // 14 colunas não cabem em 100 colunas de terminal: sem a rolagem
     // horizontal, o `Table` espreme o cabeçalho e sobra só a inicial.
     let screen = screen_at(&mut app_com_muitas_colunas(), 100);
-    for nome in ["id", "name", "email", "active", "created_at"] {
+    for nome in ["id", "name", "email", "active"] {
         assert!(screen.contains(nome), "faltou {nome}: {screen}");
     }
     // As colunas que não couberam ficam para a rolagem, e o título avisa.
     assert!(!screen.contains("coluna_0"), "{screen}");
-    assert!(screen.contains("colunas 1-5/14"), "{screen}");
+    assert!(screen.contains("colunas 1-4/14"), "{screen}");
 }
 
 #[test]

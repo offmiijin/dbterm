@@ -49,7 +49,7 @@ pub(super) fn draw(frame: &mut Frame, area: Rect, app: &App) {
     frame.render_widget(Paragraph::new(banner(area.width)), areas[0]);
     frame.render_widget(
         Paragraph::new(
-            Line::from("Conexões Rápidas")
+            Line::from(format!("{} Conexões Rápidas", '\u{f1e6}'))
                 .style(theme::header())
                 .centered(),
         ),
@@ -99,6 +99,7 @@ fn bloco(frame: &mut Frame, area: Rect, saved: &Saved, selecionada: bool) {
     let linhas = vec![
         Line::from(vec![
             Span::styled(marcador, theme::accent()),
+            Span::styled(format!("{} ", '\u{f1e6}'), theme::accent()),
             Span::styled(engine_label(&saved.engine), theme::accent()),
             Span::styled(" · ", theme::muted()),
             Span::styled(format!("{}:{}", saved.host, saved.port), theme::text()),

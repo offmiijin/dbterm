@@ -40,14 +40,14 @@ pub(crate) fn draw_commands(
 }
 
 /// Linha de abas: a ativa em destaque, as outras apagadas. Cada aba mostra o
-/// prefixo que a seleciona (`SQL ;`, `Tabela #`).
+/// ícone, o prefixo que a seleciona (` SQL ;`, ` Tabela #`).
 fn abas(ativa: CommandTab) -> Line<'static> {
     let mut spans = Vec::new();
     for (indice, aba) in CommandTab::ALL.iter().enumerate() {
         if indice > 0 {
             spans.push(Span::styled("  ", theme::muted()));
         }
-        let rotulo = format!("{} {}", aba.titulo(), aba.atalho());
+        let rotulo = format!("{} {} {}", aba.icone(), aba.titulo(), aba.atalho());
         if *aba == ativa {
             spans.push(Span::styled(format!("[{rotulo}]"), theme::accent()));
         } else {

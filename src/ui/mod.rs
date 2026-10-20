@@ -100,7 +100,7 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
     ])
     .areas(frame.area());
     let [side, main] =
-        Layout::horizontal([Constraint::Length(28), Constraint::Min(20)]).areas(body);
+        Layout::horizontal([Constraint::Length(34), Constraint::Min(20)]).areas(body);
 
     draw_header(frame, header, server, database, current.as_deref());
 
@@ -125,15 +125,12 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         Focus::Databases => (
             databases
                 .iter()
-                .map(|database| ListItem::new(database.as_str()))
+                .map(database_item)
                 .collect::<Vec<_>>(),
             databases_state,
         ),
         _ => (
-            tables
-                .iter()
-                .map(|table| ListItem::new(table.as_str()))
-                .collect::<Vec<_>>(),
+            tables.iter().map(tabela_item).collect::<Vec<_>>(),
             list_state,
         ),
     };
@@ -264,28 +261,34 @@ fn keys(mode: Mode, focus: Focus) -> &'static str {
     }
 }
 
+/// Ícones Nerd Font dos níveis da cascata.
+const ICONE_CONEXAO: char = '\u{f1e6}'; // plug
+const ICONE_BANCO: char = '\u{f1c0}'; // database
+const ICONE_TABELA: char = '\u{f0ce}'; // table
+
 /// Linha de chips dos três níveis, sempre na ordem conexões → bancos →
-/// tabelas. O nível ativo mostra nome e contagem; os outros, só a letra do
-/// atalho em destaque.
+/// tabelas. O nível ativo mostra ícone, nome e contagem; os outros, a letra
+/// do atalho e o ícone em destaque.
 fn chips_line(ativo: Focus, contagens: [usize; 3]) -> Line<'static> {
-    const NIVEIS: [(Focus, &str, &str); 3] = [
-        (Focus::Connections, "c", "conexões"),
-        (Focus::Databases, "b", "bancos"),
-        (Focus::Tables, "t", "tabelas"),
+    const NIVEIS: [(Focus, &str, &str, char); 3] = [
+        (Focus::Connections, "c", "conexões", ICONE_CONEXAO),
+        (Focus::Databases, "b", "bancos", ICONE_BANCO),
+        (Focus::Tables, "t", "tabelas", ICONE_TABELA),
     ];
     let mut spans = Vec::new();
-    for (indice, (nivel, letra, nome)) in NIVEIS.iter().enumerate() {
+    for (indice, (nivel, letra, nome, icone)) in NIVEIS.iter().enumerate() {
         if indice > 0 {
             spans.push(Span::styled(" ", theme::muted()));
         }
         if *nivel == ativo {
             // Mesma cor da marca no topo: o nível ativo inteiro fica roxo.
             spans.push(Span::styled(
-                format!("{nome} ({})", contagens[indice]),
+                format!("{} {nome} ({})", icone, contagens[indice]),
                 theme::accent(),
             ));
         } else {
             spans.push(Span::styled("[", theme::muted()));
+            spans.push(Span::styled(format!("{icone} "), theme::accent()));
             spans.push(Span::styled(*letra, theme::accent()));
             spans.push(Span::styled("]", theme::muted()));
         }
@@ -293,17 +296,33 @@ fn chips_line(ativo: Focus, contagens: [usize; 3]) -> Line<'static> {
     Line::from(spans)
 }
 
-/// Uma conexão salva como item da lista: endereço e schema, sem senha.
+/// Uma conexão salva como item da lista: ícone, endereço e schema, sem senha.
 fn conexao_item(saved: &Saved) -> ListItem<'static> {
-    let mut spans = vec![Span::styled(
-        format!("{}:{}", saved.host, saved.port),
-        theme::text(),
-    )];
+    let mut spans = vec![
+        Span::styled(format!("{ICONE_CONEXAO} "), theme::accent()),
+        Span::styled(format!("{}:{}", saved.host, saved.port), theme::text()),
+    ];
     if !saved.database.is_empty() {
         spans.push(Span::styled(" ", theme::muted()));
         spans.push(Span::styled(saved.database.clone(), theme::muted()));
     }
     ListItem::new(Line::from(spans))
+}
+
+/// Um banco como item da lista, com o ícone de banco.
+fn database_item(database: &String) -> ListItem<'static> {
+    ListItem::new(Line::from(vec![
+        Span::styled(format!("{ICONE_BANCO} "), theme::accent()),
+        Span::styled(database.clone(), theme::text()),
+    ]))
+}
+
+/// Uma tabela como item da lista, com o ícone de tabela.
+fn tabela_item(table: &String) -> ListItem<'static> {
+    ListItem::new(Line::from(vec![
+        Span::styled(format!("{ICONE_TABELA} "), theme::accent()),
+        Span::styled(table.clone(), theme::text()),
+    ]))
 }
 
 /// Moldura de painel, usada pela grade e pela lista de tabelas.

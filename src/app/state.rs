@@ -90,6 +90,16 @@ impl CommandTab {
         }
     }
 
+    /// Ícone Nerd Font da aba, mostrado antes do rótulo.
+    pub fn icone(self) -> char {
+        match self {
+            // database
+            CommandTab::Sql => '\u{f1c0}',
+            // table
+            CommandTab::Table => '\u{f0ce}',
+        }
+    }
+
     /// Prefixo que marca o comando no texto do pop-up: o `;` seleciona o SQL
     /// e o `#`, a busca de tabela.
     pub fn atalho(self) -> char {

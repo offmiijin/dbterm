@@ -72,11 +72,16 @@ fn chips_mostram_os_niveis_na_ordem_com_o_ativo_expandido() {
     app.databases = vec![String::from("app")];
     app.focus = Focus::Databases;
     let tela = screen(&mut app);
-    let conexoes = tela.find("[c]").expect("chip de conexões");
+    let conexoes = tela
+        .find("[\u{f1e6} c]")
+        .expect("chip de conexões");
     let bancos = tela.find("bancos (1)").expect("bancos ativo");
-    let tabelas = tela.find("[t]").expect("chip de tabelas");
+    let tabelas = tela.find("[\u{f0ce} t]").expect("chip de tabelas");
     assert!(conexoes < bancos && bancos < tabelas, "{tela}");
-    assert!(!tela.contains("[b]"), "o nível ativo não é um chip: {tela}");
+    assert!(
+        !tela.contains("[\u{f1c0} b]"),
+        "o nível ativo não é um chip: {tela}"
+    );
 }
 
 #[test]
@@ -86,8 +91,8 @@ fn com_as_tabelas_ativas_os_bancos_viram_chip() {
     app.focus = Focus::Tables;
     let tela = screen(&mut app);
     assert!(tela.contains("tabelas (1)"), "{tela}");
-    assert!(tela.contains("[c]"), "{tela}");
-    assert!(tela.contains("[b]"), "{tela}");
+    assert!(tela.contains("[\u{f1e6} c]"), "{tela}");
+    assert!(tela.contains("[\u{f1c0} b]"), "{tela}");
 }
 
 #[test]
@@ -98,9 +103,9 @@ fn chips_ficam_centralizados_sobre_o_painel() {
     let terminal = terminal_de(&mut app, 80, 12);
     let buffer = terminal.backend().buffer();
 
-    // "[c] bancos (1) [t]" tem 18 colunas dentro das 28 do painel.
-    let (x, _) = achar(buffer, "[c]");
-    assert_eq!(x, (28 - 18) / 2);
+    // "[\u{f1e6} c] \u{f1c0} bancos (1) [\u{f0ce} t]" tem 24 colunas dentro das 34 do painel.
+    let (x, _) = achar(buffer, "[\u{f1e6} c]");
+    assert_eq!(x, (34 - 24) / 2);
 }
 
 #[test]
@@ -114,9 +119,10 @@ fn nomes_dos_niveis_usam_o_roxo_da_marca() {
     let (x, y) = achar(buffer, "bancos (1)");
     assert_eq!(buffer.cell((x, y)).unwrap().fg, crate::theme::MAUVE);
 
-    // As letras dos chips recolhidos têm a mesma cor do nome ativo.
-    let (x, y) = achar(buffer, "[c]");
+    // As letras e os ícones dos chips recolhidos têm a mesma cor do nome ativo.
+    let (x, y) = achar(buffer, "[\u{f1e6} c]");
     assert_eq!(buffer.cell((x + 1, y)).unwrap().fg, crate::theme::MAUVE);
+    assert_eq!(buffer.cell((x + 3, y)).unwrap().fg, crate::theme::MAUVE);
 }
 
 #[test]

@@ -13,8 +13,8 @@ fn popup_de_comandos_mostra_abas_prefixos_e_acoes() {
     let tela = screen(&mut app);
 
     assert!(tela.contains("Comandos"), "{tela}");
-    assert!(tela.contains("[SQL ;]"), "{tela}");
-    assert!(tela.contains("Tabela #"), "{tela}");
+    assert!(tela.contains("[\u{f1c0} SQL ;]"), "{tela}");
+    assert!(tela.contains("\u{f0ce} Tabela #"), "{tela}");
     assert!(tela.contains(";"), "{tela}");
     assert!(
         tela.contains("ctrl+enter executar · tab aba · esc fechar"),
@@ -45,7 +45,7 @@ fn busca_de_tabela_mostra_a_caixa_de_completar() {
     app.commands = Some(Commands::with_input(String::from("#pro")));
     let tela = screen(&mut app);
 
-    assert!(tela.contains("[Tabela #]"), "{tela}");
+    assert!(tela.contains("[\u{f0ce} Tabela #]"), "{tela}");
     assert!(tela.contains("#pro"), "{tela}");
     // A caixa completa `#pro` com as tabelas que combinam.
     assert!(tela.contains("products"), "{tela}");
