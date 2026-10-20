@@ -109,7 +109,7 @@ impl History {
 
     fn sort(&mut self) {
         self.connections
-            .sort_by(|a, b| b.last_used.cmp(&a.last_used));
+            .sort_by_key(|entry| std::cmp::Reverse(entry.last_used));
     }
 
     /// Grava best-effort: falha de escrita não derruba a sessão.
