@@ -4,7 +4,7 @@
 
 use ratatui::widgets::ListState;
 
-use crate::db::{Response, TableData};
+use crate::db::{Response, TableData, consulta_paginavel};
 use crate::history::Saved;
 use crate::view;
 
@@ -86,6 +86,8 @@ impl App {
                     self.append_page(table, limit, data);
                     return;
                 }
+                // Primeira página da tabela sai do modo consulta (`;`).
+                self.query_sql = None;
                 let mesma_tabela = self.current.as_deref() == Some(table.as_str());
                 let linhas = data.rows.len();
                 let colunas = data.columns.len();
@@ -113,7 +115,19 @@ impl App {
                 self.status = super::state::Status::Ready;
             }
             Response::Updated { table } => self.load(table),
-            Response::Query { data } => self.apply_query(data),
+            Response::Query {
+                sql,
+                offset,
+                limit,
+                data,
+            } => {
+                if offset > 0 {
+                    // Página seguinte da consulta: só junta ao que já está na tela.
+                    self.append_query_page(sql, limit, data);
+                    return;
+                }
+                self.apply_query(sql, limit, data);
+            }
             Response::Failed(message) => {
                 // Uma página que falhou não pode deixar a próxima travada.
                 self.loading_more = false;
@@ -146,19 +160,40 @@ impl App {
         self.status = super::state::Status::Ready;
     }
 
-    /// O retorno do SQL livre vira a grade: sem paginação, sem edição por
-    /// célula (sem chave primária) e com o foco nos registros. Sem colunas, o
-    /// comando não devolveu linhas e a grade fica como está.
-    pub(super) fn apply_query(&mut self, data: TableData) {
+    /// O retorno do SQL livre vira a grade, com o foco nos registros. Sem
+    /// colunas, o comando não devolveu linhas e a grade fica como está. Sem
+    /// paginação automática (`SHOW`, `LIMIT` próprio...), a primeira página é
+    /// a última; senão a grade pagina de 200 em 200 como a tabela.
+    pub(super) fn apply_query(&mut self, sql: String, limit: usize, data: TableData) {
         if data.columns.is_empty() {
+            self.loading_more = false;
             self.status =
                 super::state::Status::Notice(String::from("consulta executada (sem retorno)"));
             return;
         }
+        // Consulta de uma vez só: sem próxima página e fora do modo consulta.
+        if !consulta_paginavel(&sql) {
+            let linhas = data.rows.len();
+            self.query_sql = None;
+            self.larguras = view::larguras(&data);
+            self.data = Some(data);
+            self.end_reached = true;
+            self.loading_more = false;
+            self.table_state
+                .select(if linhas == 0 { None } else { Some(0) });
+            self.column = None;
+            self.hscroll = 0;
+            self.mode = super::state::Mode::Rows;
+            self.edit = None;
+            self.focus = super::state::Focus::Data;
+            self.status = super::state::Status::Ready;
+            return;
+        }
         let linhas = data.rows.len();
+        self.query_sql = Some(sql);
         self.larguras = view::larguras(&data);
         self.data = Some(data);
-        self.end_reached = true;
+        self.end_reached = linhas < limit;
         self.loading_more = false;
         self.table_state
             .select(if linhas == 0 { None } else { Some(0) });
@@ -167,6 +202,24 @@ impl App {
         self.mode = super::state::Mode::Rows;
         self.edit = None;
         self.focus = super::state::Focus::Data;
+        self.status = super::state::Status::Ready;
+    }
+
+    /// Junta a página seguinte da consulta à grade, se ainda for a mesma.
+    pub(super) fn append_query_page(&mut self, sql: String, limit: usize, data: TableData) {
+        self.loading_more = false;
+        if self.query_sql.as_deref() != Some(sql.as_str()) {
+            // A consulta trocou enquanto a página vinha: ela não serve mais.
+            return;
+        }
+        self.end_reached = data.rows.len() < limit;
+        // A página nova pode trazer valores mais largos que os já vistos.
+        for (largura, nova) in self.larguras.iter_mut().zip(view::larguras(&data)) {
+            *largura = (*largura).max(nova);
+        }
+        if let Some(atual) = self.data.as_mut() {
+            atual.rows.extend(data.rows);
+        }
         self.status = super::state::Status::Ready;
     }
 

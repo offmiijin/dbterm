@@ -47,12 +47,24 @@ pub(crate) fn rows(
 }
 
 /// Executa o SQL livre do comando master e devolve o retorno como página para
-/// a grade. Não há paginação nem chave primária: o resultado é leitura.
+/// a grade. `SELECT` (e `WITH`) sem `LIMIT` próprio ganha `LIMIT`/`OFFSET` da
+/// página pedida; o resto executa de uma vez e a UI marca o fim na chegada.
 ///
 /// Comandos que não devolvem linhas (ex.: `UPDATE`) voltam com zero colunas;
 /// a UI mostra um aviso e mantém a grade como está.
-pub(crate) fn query(conn: &mut Conn, sql: &str) -> mysql::Result<TableData> {
-    let mut result = conn.query_iter(sql)?;
+pub(crate) fn query(
+    conn: &mut Conn,
+    sql: &str,
+    offset: usize,
+    limit: usize,
+) -> mysql::Result<TableData> {
+    let base = crate::db::sem_ponto_e_virgula(sql);
+    let final_sql = if crate::db::consulta_paginavel(&base) {
+        format!("{base} LIMIT {limit} OFFSET {offset}")
+    } else {
+        base
+    };
+    let mut result = conn.query_iter(final_sql)?;
     let columns = result.columns();
     let kinds: Vec<ColumnKind> = columns
         .as_ref()

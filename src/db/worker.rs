@@ -148,9 +148,14 @@ fn worker(tx: &Sender<Response>, rx: &Receiver<Request>) {
                 },
                 None => sem_conexao(),
             },
-            Request::Query { sql } => match conn.as_mut() {
-                Some(conn) => match query(conn, &sql) {
-                    Ok(data) => Response::Query { data },
+            Request::Query { sql, offset, limit } => match conn.as_mut() {
+                Some(conn) => match query(conn, &sql, offset, limit) {
+                    Ok(data) => Response::Query {
+                        sql,
+                        offset,
+                        limit,
+                        data,
+                    },
                     Err(err) => Response::Failed(err.to_string()),
                 },
                 None => sem_conexao(),

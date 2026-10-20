@@ -43,6 +43,8 @@ impl App {
     }
 
     /// Executa o SQL: vazio recarrega a tabela aberta, senão vai ao servidor.
+    /// Sem declaração (`cod_empresa = 1064`), vira `SELECT` com `WHERE` na
+    /// tabela aberta; a primeira página vem com 200 linhas.
     fn execute_sql(&mut self, sql: String) {
         if sql.is_empty() {
             if let Some(table) = self.current.clone() {
@@ -52,8 +54,20 @@ impl App {
             }
             return;
         }
+        let base = match expandir_sql(&sql, self.current.as_deref()) {
+            Ok(base) => base,
+            Err(message) => {
+                self.status = super::state::Status::Failed(message);
+                return;
+            }
+        };
+        self.query_sql = None;
         self.status = super::state::Status::Loading(String::from("consulta"));
-        self.db.request(Request::Query { sql });
+        self.db.request(Request::Query {
+            sql: base,
+            offset: 0,
+            limit: ROW_LIMIT,
+        });
     }
 
     /// `enter` na busca de tabela: abre a exata ou a primeira sugestão da
@@ -98,6 +112,7 @@ impl App {
     }
 
     /// Pede a página seguinte quando a seleção encosta na última linha carregada.
+    /// Na grade de consulta (`;`), a próxima página é do SQL; na tabela, da tabela.
     pub(super) fn load_next_page(&mut self) {
         if self.loading_more || self.end_reached {
             return;
@@ -109,6 +124,16 @@ impl App {
             return;
         };
         if selecionada + 1 < data.rows.len() {
+            return;
+        }
+        if let Some(base) = self.query_sql.clone() {
+            self.loading_more = true;
+            self.status = super::state::Status::Loading(String::from("consulta"));
+            self.db.request(Request::Query {
+                sql: base,
+                offset: data.rows.len(),
+                limit: ROW_LIMIT,
+            });
             return;
         }
         let Some(table) = self.current.clone() else {
@@ -182,6 +207,7 @@ impl App {
         self.tables.clear();
         self.list_state = ratatui::widgets::ListState::default();
         self.current = None;
+        self.query_sql = None;
         self.data = None;
         self.table_state = ratatui::widgets::TableState::default();
         self.column = None;
@@ -339,11 +365,13 @@ impl App {
     }
 
     /// Pede a tabela do começo; recarregar a mesma mantém as páginas já
-    /// carregadas, que só se perdem ao abrir outra tabela.
+    /// carregadas, que só se perdem ao abrir outra tabela. Sair da consulta
+    /// (`;`) é abrir a tabela: a grade volta ao modo de tabela.
     pub(super) fn load(&mut self, table: String) {
         self.status = super::state::Status::Loading(table.clone());
         self.loading_more = false;
         self.end_reached = false;
+        self.query_sql = None;
         let limit = self.page_limit(&table);
         self.db.request(Request::Rows {
             table,
@@ -398,5 +426,54 @@ impl App {
 
     pub fn row_count(&self) -> usize {
         self.data.as_ref().map_or(0, |data| data.rows.len())
+    }
+}
+
+/// SQL completo, que vai ao servidor como digitado: `SELECT`, `WITH`, `SHOW`,
+/// escrita (`INSERT`/`UPDATE`/`DELETE`...), DDL e os utilitários (`USE`/`SET`).
+const SQL_COMPLETO: [&str; 17] = [
+    "SELECT", "WITH", "SHOW", "DESCRIBE", "DESC", "EXPLAIN", "INSERT", "UPDATE", "DELETE",
+    "REPLACE", "CREATE", "ALTER", "DROP", "TRUNCATE", "USE", "SET", "CALL",
+];
+
+/// Sem declaração vira `SELECT * FROM <tabela aberta> WHERE <condição>`.
+/// Um `WHERE` na frente é opcional e sai da condição. Sem tabela aberta, ou
+/// sem condição depois do `WHERE`, volta o motivo para a UI mostrar.
+pub(super) fn expandir_sql(sql: &str, tabela: Option<&str>) -> Result<String, String> {
+    let limpo = sql.trim();
+    if SQL_COMPLETO
+        .iter()
+        .any(|palavra| comeca_com(limpo, palavra))
+    {
+        return Ok(limpo.to_owned());
+    }
+    let Some(tabela) = tabela else {
+        return Err(String::from("nenhuma tabela aberta"));
+    };
+    let condicao = match comeca_com(limpo, "WHERE") {
+        true => limpo["WHERE".len()..].trim(),
+        false => limpo,
+    };
+    if condicao.is_empty() {
+        return Err(String::from("informe a condição"));
+    }
+    Ok(format!(
+        "SELECT * FROM `{}` WHERE {condicao}",
+        tabela.replace('`', "``")
+    ))
+}
+
+/// Igual ao do `db`: a palavra abre o texto com fronteira depois dela.
+fn comeca_com(sql: &str, palavra: &str) -> bool {
+    let texto = sql.trim_start();
+    if texto.len() < palavra.len() {
+        return false;
+    }
+    if !texto[..palavra.len()].eq_ignore_ascii_case(palavra) {
+        return false;
+    }
+    match texto[palavra.len()..].chars().next() {
+        None => true,
+        Some(c) => !(c.is_ascii_alphanumeric() || c == '_'),
     }
 }

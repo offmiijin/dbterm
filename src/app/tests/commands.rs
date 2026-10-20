@@ -344,9 +344,60 @@ fn enter_com_hash_puro_pede_a_tabela() {
 }
 
 #[test]
+fn resposta_sem_limit_pagina_de_200_em_200() {
+    let mut app = app_com_grade();
+    let base = String::from("select * from objetos where cod_empresa = 1064");
+    let pagina_cheia = |primeira: usize| Response::Query {
+        sql: base.clone(),
+        offset: primeira - 1,
+        limit: ROW_LIMIT,
+        data: TableData {
+            columns: vec![String::from("id")],
+            kinds: vec![ColumnKind::Number],
+            rows: (primeira..primeira + ROW_LIMIT)
+                .map(|n| vec![n.to_string()])
+                .collect(),
+            primary_key: Vec::new(),
+        },
+    };
+    app.on_response(pagina_cheia(1));
+
+    assert_eq!(app.row_count(), ROW_LIMIT);
+    assert!(!app.end_reached, "página cheia pede a próxima");
+    assert_eq!(app.query_sql.as_deref(), Some(base.as_str()));
+    assert!(app.focus == Focus::Data);
+    assert!(matches!(app.status, Status::Ready));
+
+    // Encostar na última linha pede a próxima página da consulta.
+    app.on_key(KeyEvent::from(KeyCode::Char('G')));
+    assert!(app.loading_more);
+    assert!(matches!(app.status, Status::Loading(ref o) if o == "consulta"));
+
+    // Página curta fecha a consulta.
+    app.on_response(Response::Query {
+        sql: base.clone(),
+        offset: ROW_LIMIT,
+        limit: ROW_LIMIT,
+        data: TableData {
+            columns: vec![String::from("id")],
+            kinds: vec![ColumnKind::Number],
+            rows: vec![vec![String::from("201")]],
+            primary_key: Vec::new(),
+        },
+    });
+    assert_eq!(app.row_count(), ROW_LIMIT + 1);
+    assert!(app.end_reached);
+    assert!(!app.loading_more);
+}
+
+#[test]
 fn resposta_da_consulta_vira_a_grade_sem_paginacao() {
+    // Com `LIMIT` próprio, a consulta executa de uma vez e não pagina.
     let mut app = app_com_grade();
     app.on_response(Response::Query {
+        sql: String::from("SELECT * FROM users LIMIT 1"),
+        offset: 0,
+        limit: ROW_LIMIT,
         data: TableData {
             columns: vec![String::from("COUNT(*)")],
             kinds: vec![ColumnKind::Number],
@@ -359,6 +410,7 @@ fn resposta_da_consulta_vira_a_grade_sem_paginacao() {
     assert_eq!(data.columns, ["COUNT(*)"]);
     assert_eq!(data.rows, [["2"]]);
     assert!(app.end_reached, "consulta não pagina");
+    assert!(app.query_sql.is_none());
     assert!(!app.loading_more);
     assert_eq!(app.table_state.selected(), Some(0));
     assert!(app.focus == Focus::Data);
@@ -370,6 +422,9 @@ fn resposta_sem_colunas_mantem_a_grade_com_aviso() {
     let mut app = app_com_grade();
     let linhas = app.row_count();
     app.on_response(Response::Query {
+        sql: String::from("UPDATE users SET name = 'ana' WHERE id = 1"),
+        offset: 0,
+        limit: ROW_LIMIT,
         data: TableData {
             columns: Vec::new(),
             kinds: Vec::new(),
@@ -381,5 +436,60 @@ fn resposta_sem_colunas_mantem_a_grade_com_aviso() {
     assert_eq!(app.row_count(), linhas, "a grade fica como está");
     assert!(
         matches!(app.status, Status::Notice(ref aviso) if aviso == "consulta executada (sem retorno)")
+    );
+}
+
+#[test]
+fn atalho_condicao_vira_select_na_tabela_aberta() {
+    let expandir = super::super::ops::expandir_sql;
+    assert_eq!(
+        expandir("cod_empresa = 1064", Some("objetos")),
+        Ok(String::from(
+            "SELECT * FROM `objetos` WHERE cod_empresa = 1064"
+        ))
+    );
+    // O `WHERE` na frente é opcional.
+    assert_eq!(
+        expandir("where cod_empresa = 1064", Some("objetos")),
+        Ok(String::from(
+            "SELECT * FROM `objetos` WHERE cod_empresa = 1064"
+        ))
+    );
+    // Tabela com crase escapa dobrando.
+    assert_eq!(
+        expandir("id = 1", Some("we`ird")),
+        Ok(String::from("SELECT * FROM `we``ird` WHERE id = 1"))
+    );
+}
+
+#[test]
+fn atalho_sql_completo_passa_direto() {
+    let expandir = super::super::ops::expandir_sql;
+    let sql = "select * from objetos where cod_empresa = 1064";
+    assert_eq!(expandir(sql, Some("objetos")), Ok(String::from(sql)));
+    assert_eq!(
+        expandir("WITH c AS (SELECT 1) SELECT * FROM c", None),
+        Ok(String::from("WITH c AS (SELECT 1) SELECT * FROM c"))
+    );
+    assert_eq!(
+        expandir("SHOW TABLES", None),
+        Ok(String::from("SHOW TABLES"))
+    );
+    assert_eq!(
+        expandir("UPDATE objetos SET nome = 'x' WHERE id = 1", None),
+        Ok(String::from("UPDATE objetos SET nome = 'x' WHERE id = 1"))
+    );
+}
+
+#[test]
+fn atalho_sem_tabela_ou_sem_condicao_falha() {
+    let expandir = super::super::ops::expandir_sql;
+    assert_eq!(
+        expandir("cod_empresa = 1064", None),
+        Err(String::from("nenhuma tabela aberta"))
+    );
+    assert_eq!(
+        expandir("where", Some("objetos")),
+        Err(String::from("informe a condição"))
     );
 }

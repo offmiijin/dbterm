@@ -57,6 +57,9 @@ pub struct App {
     pub tables: Vec<String>,
     /// Tabela cujos dados estão em `data`.
     pub current: Option<String>,
+    /// Base do SQL paginado que gerou `data`, quando a grade veio de `;`.
+    /// `None` na navegação por tabela; sair da consulta é abrir uma tabela.
+    pub query_sql: Option<String>,
     pub data: Option<TableData>,
     pub focus: Focus,
     pub status: Status,
@@ -126,6 +129,7 @@ impl App {
             databases: Vec::new(),
             tables: Vec::new(),
             current: None,
+            query_sql: None,
             data: None,
             focus: Focus::Databases,
             status: Status::Connecting,

@@ -205,6 +205,65 @@ impl TableAlter {
     }
 }
 
+/// O SQL sem o `;` final e sem espaços nas pontas: é a base que pagina.
+/// Só o último `;` (e os que sobram com ele) sai; o resto vai como digitado.
+pub(crate) fn sem_ponto_e_virgula(sql: &str) -> String {
+    let mut base = sql.trim().to_owned();
+    while base.ends_with(';') {
+        base.pop();
+        base = base.trim_end().to_owned();
+    }
+    base
+}
+
+/// A consulta aceita paginação automática de 200 em 200: é um `SELECT` (ou
+/// `WITH`) sem `LIMIT` próprio. Todo o resto (não-`SELECT`, `SHOW`, consulta
+/// que já limita) executa de uma vez e marca o fim na primeira página.
+pub(crate) fn consulta_paginavel(sql: &str) -> bool {
+    let base = sem_ponto_e_virgula(sql);
+    if !comeca_com(&base, "SELECT") && !comeca_com(&base, "WITH") {
+        return false;
+    }
+    !contem_limit(&base)
+}
+
+/// A palavra abre o texto, com fronteira depois dela (`SELECT` não casa com
+/// `SELECTED`): fim do texto ou algo que não é letra, número nem `_`.
+fn comeca_com(sql: &str, palavra: &str) -> bool {
+    let texto = sql.trim_start();
+    if texto.len() < palavra.len() {
+        return false;
+    }
+    if !texto[..palavra.len()].eq_ignore_ascii_case(palavra) {
+        return false;
+    }
+    match texto[palavra.len()..].chars().next() {
+        None => true,
+        Some(c) => !(c.is_ascii_alphanumeric() || c == '_'),
+    }
+}
+
+/// Um `LIMIT` em qualquer ponto da consulta, com fronteira dos dois lados.
+/// O que está dentro de literais também conta: o preço é não paginar uma
+/// consulta filtrada por `'LIMIT'`, em vez de quebrar o SQL do usuário.
+fn contem_limit(sql: &str) -> bool {
+    let maiusculas = sql.to_ascii_uppercase();
+    let bytes = maiusculas.as_bytes();
+    let mut i = 0;
+    while i + 5 <= bytes.len() {
+        if &bytes[i..i + 5] == b"LIMIT" {
+            let antes = (i > 0).then(|| bytes[i - 1] as char);
+            let depois = (i + 5 < bytes.len()).then(|| bytes[i + 5] as char);
+            let borda =
+                |c: Option<char>| c.is_none_or(|c| !(c.is_ascii_alphanumeric() || c == '_'));
+            if borda(antes) && borda(depois) {
+                return true;
+            }
+        }
+        i += 1;
+    }
+    false
+}
 /// Nome de charset ou collation aceito no DDL: letras, números e `_`.
 ///
 /// DDL não aceita placeholder para identificador, então esses nomes entram
@@ -244,7 +303,13 @@ pub enum Request {
         limit: usize,
     },
     /// Executa o SQL livre do comando master e mostra o retorno na grade.
-    Query { sql: String },
+    /// O `sql` é a base sem paginação: o worker anexa `LIMIT`/`OFFSET` quando
+    /// a consulta é paginável, e a UI pede a próxima página com `offset`.
+    Query {
+        sql: String,
+        offset: usize,
+        limit: usize,
+    },
     /// Grava `value` (`None` = `NULL`) na coluna `column` da linha identificada
     /// pelos valores atuais da chave primária.
     Update {
@@ -291,8 +356,14 @@ pub enum Response {
     Updated {
         table: String,
     },
-    /// O SQL livre do comando master voltou com linhas para a grade.
+    /// O SQL livre do comando master voltou com uma página para a grade.
+    /// O `sql` é a base que gerou a página, para a próxima usar o `offset`.
     Query {
+        sql: String,
+        /// Quantas linhas já vinham carregadas antes desta página.
+        offset: usize,
+        /// Quantas linhas foram pedidas: a página veio inteira?
+        limit: usize,
         data: TableData,
     },
     Failed(String),
@@ -362,6 +433,33 @@ mod tests {
         assert!(!identificador("utf8 mb4"));
         assert!(!identificador("utf8mb4;DROP"));
         assert!(!identificador("`x`"));
+    }
+
+    #[test]
+    fn ponto_e_virgula_final_sai_da_base() {
+        use super::{consulta_paginavel, sem_ponto_e_virgula};
+
+        assert_eq!(sem_ponto_e_virgula("select 1;"), "select 1");
+        assert_eq!(sem_ponto_e_virgula("select 1;  "), "select 1");
+        assert_eq!(sem_ponto_e_virgula("select 1"), "select 1");
+    }
+
+    #[test]
+    fn so_select_sem_limit_pagina() {
+        use super::consulta_paginavel;
+
+        assert!(consulta_paginavel(
+            "select * from objetos where cod_empresa = 1064"
+        ));
+        assert!(consulta_paginavel("SELECT * FROM t;"));
+        assert!(consulta_paginavel("with c as (select 1) select * from c"));
+        // Com `LIMIT` próprio, executa de uma vez.
+        assert!(!consulta_paginavel("select * from t limit 10"));
+        assert!(!consulta_paginavel("SELECT * FROM t LIMIT 200 OFFSET 200"));
+        // Escrita e utilitários não paginam.
+        assert!(!consulta_paginavel("SHOW TABLES"));
+        assert!(!consulta_paginavel("UPDATE t SET a = 1"));
+        assert!(!consulta_paginavel("SELECTED"));
     }
 
     fn tabela(nome: &str) -> TableInfo {
