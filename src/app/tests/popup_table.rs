@@ -113,7 +113,7 @@ fn digitacao_edita_o_nome_e_o_comentario() {
 }
 
 #[test]
-fn enter_no_campo_de_texto_salva_e_fecha() {
+fn ctrl_s_no_campo_de_texto_salva_e_fecha() {
     let mut app = app_com_popup_de_tabela();
     for _ in 0.."users".len() {
         app.on_key(KeyEvent::from(KeyCode::Backspace));
@@ -121,14 +121,14 @@ fn enter_no_campo_de_texto_salva_e_fecha() {
     for caractere in "clientes".chars() {
         app.on_key(tecla(caractere));
     }
-    app.on_key(KeyEvent::from(KeyCode::Enter));
+    app.on_key(ctrl('s'));
 
     assert!(app.table_edit.is_none(), "o pop-up fecha ao salvar");
     assert!(matches!(app.status, Status::Loading(ref o) if o == "tabela users"));
 }
 
 #[test]
-fn s_no_campo_de_lista_salva() {
+fn ctrl_s_no_campo_de_lista_salva() {
     let mut app = app_com_popup_de_tabela();
     app.on_key(KeyEvent::from(KeyCode::Tab));
     app.on_key(KeyEvent::from(KeyCode::Tab));
@@ -137,15 +137,28 @@ fn s_no_campo_de_lista_salva() {
         TableField::Engine
     );
 
-    app.on_key(tecla('s'));
+    app.on_key(ctrl('s'));
 
     assert!(app.table_edit.is_none());
 }
 
 #[test]
-fn enter_sem_mudanca_fecha_sem_pedir_alter() {
+fn enter_e_s_sozinhos_nao_salva_no_popup_da_tabela() {
     let mut app = app_com_popup_de_tabela();
+    // No campo de texto `enter` não salva mais.
     app.on_key(KeyEvent::from(KeyCode::Enter));
+    assert!(app.table_edit.is_some(), "enter não salva");
+    // No campo de lista `s` sem `ctrl` não salva e `enter` abre a lista.
+    app.table_edit.as_mut().expect("pop-up").field = TableField::Engine;
+    app.on_key(tecla('s'));
+    assert!(app.table_edit.is_some(), "s sozinho não salva");
+    app.on_key(KeyEvent::from(KeyCode::Enter));
+    assert!(app.table_edit.as_ref().expect("pop-up").picker.is_some());
+}
+
+fn ctrl_s_sem_mudanca_fecha_sem_pedir_alter() {
+    let mut app = app_com_popup_de_tabela();
+    app.on_key(ctrl('s'));
     assert!(app.table_edit.is_none());
     assert!(!matches!(app.status, Status::Failed(_)));
 }
@@ -247,7 +260,7 @@ fn auto_increment_invalido_mantem_o_popup_aberto() {
     for caractere in "abc".chars() {
         app.on_key(tecla(caractere));
     }
-    app.on_key(KeyEvent::from(KeyCode::Enter));
+    app.on_key(ctrl('s'));
 
     assert!(app.table_edit.is_some(), "o pop-up continua aberto");
     assert!(
@@ -296,7 +309,7 @@ fn nome_vazio_mantem_o_popup_aberto() {
     for _ in 0.."users".len() {
         app.on_key(KeyEvent::from(KeyCode::Backspace));
     }
-    app.on_key(KeyEvent::from(KeyCode::Enter));
+    app.on_key(ctrl('s'));
 
     assert!(app.table_edit.is_some(), "o pop-up continua aberto");
     assert!(matches!(app.status, Status::Failed(ref erro) if erro == "informe o nome da tabela"));

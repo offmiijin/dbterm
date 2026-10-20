@@ -57,10 +57,10 @@ fn campo_conexao(
     campo(&valor, field.titulo(), estilo, rotulo_largura, comprimento)
 }
 
-/// Ações do pop-up de conexão: `s` grava e `esc` descarta.
+/// Ações do pop-up de conexão: `ctrl+s` grava e `esc` descarta.
 fn linha_edicao() -> Line<'static> {
     Line::from(vec![
-        Span::styled("s", theme::accent()),
+        Span::styled("ctrl+s", theme::accent()),
         Span::styled(" salvar · ", theme::text()),
         Span::styled("esc", theme::accent()),
         Span::styled(" cancelar", theme::text()),

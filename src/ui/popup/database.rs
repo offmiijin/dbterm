@@ -82,10 +82,10 @@ fn linha_banco(edit: &DatabaseEdit, field: DatabaseField, comprimento: usize) ->
 }
 
 /// Ações do pop-up de banco: `enter` abre a lista do campo (ou alterna o
-/// sim/não) e `s` grava.
+/// sim/não) e `ctrl+s` grava.
 fn linha_acoes_banco() -> Line<'static> {
     Line::from(vec![
-        Span::styled("s", theme::accent()),
+        Span::styled("ctrl+s", theme::accent()),
         Span::styled(" salvar · ", theme::text()),
         Span::styled("esc", theme::accent()),
         Span::styled(" cancelar", theme::text()),

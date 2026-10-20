@@ -187,21 +187,20 @@ fn quebra_dura(texto: &str, limite: usize) -> Vec<String> {
     pedacos
 }
 
-/// Ações do pop-up de tabela: no campo de texto `enter` salva; nos de lista,
-/// `enter` abre a lista e `s` salva.
+/// Ações do pop-up de tabela: `enter` abre a lista do campo e `ctrl+s` salva.
 fn linha_acoes_tabela(edit: &TableEdit) -> Line<'static> {
     if edit.field.dropdown() {
         return Line::from(vec![
             Span::styled("enter", theme::accent()),
             Span::styled(" lista · ", theme::text()),
-            Span::styled("s", theme::accent()),
+            Span::styled("ctrl+s", theme::accent()),
             Span::styled(" salvar · ", theme::text()),
             Span::styled("esc", theme::accent()),
             Span::styled(" cancelar", theme::text()),
         ]);
     }
     Line::from(vec![
-        Span::styled("enter", theme::accent()),
+        Span::styled("ctrl+s", theme::accent()),
         Span::styled(" salvar · ", theme::text()),
         Span::styled("esc", theme::accent()),
         Span::styled(" cancelar", theme::text()),
@@ -211,8 +210,8 @@ fn linha_acoes_tabela(edit: &TableEdit) -> Line<'static> {
 /// Teclas do pop-up da tabela, como saem no rodapé.
 pub(crate) fn table_keys(edit: &TableEdit) -> &'static str {
     if edit.field.dropdown() {
-        "enter lista · s salvar · esc cancelar"
+        "enter lista · ctrl+s salvar · esc cancelar"
     } else {
-        "enter salvar · esc cancelar"
+        "ctrl+s salvar · esc cancelar"
     }
 }

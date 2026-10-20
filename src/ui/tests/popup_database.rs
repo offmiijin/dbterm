@@ -16,7 +16,7 @@ fn popup_do_banco_mostra_identificacao_padroes_e_opcoes() {
     assert!(tela.contains("utf8mb4_0900_ai_ci"), "{tela}");
     assert!(tela.contains("Opções"), "{tela}");
     assert!(tela.contains("Somente leitura  não"), "{tela}");
-    assert!(tela.contains("s salvar · esc cancelar"), "{tela}");
+    assert!(tela.contains("ctrl+s salvar · esc cancelar"), "{tela}");
 
     // A identificação vem antes dos padrões, e as opções por último.
     let banco = tela.find("Banco").expect("banco");

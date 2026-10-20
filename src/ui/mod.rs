@@ -27,7 +27,7 @@ const KEYS: &str = "q sair · c/b/t nível · esc subir · j/k mover · enter ab
 /// Na cascata o `e` entra como ação de edição do nível ativo.
 const KEYS_WITH_EDIT: &str = "q sair · c/b/t nível · esc subir · e editar · j/k mover · enter abrir · r recarregar · g/G topo/fim";
 /// Teclas dos pop-ups de edição (conexão, banco e tabela).
-const POPUP_KEYS: &str = "s salvar · esc cancelar";
+const POPUP_KEYS: &str = "ctrl+s salvar · esc cancelar";
 /// Teclas da lista de opções aberta sobre um pop-up de edição.
 const PICKER_KEYS: &str = "j/k mover · enter escolher · esc voltar";
 /// Espaço que a mensagem de estado nunca perde para a linha de atalhos.

@@ -120,7 +120,28 @@ fn digitar_no_popup_edita_o_campo_com_foco_sem_sair() {
 }
 
 #[test]
-fn enter_grava_a_conexao_editada_no_mesmo_lugar_da_lista() {
+fn s_e_enter_nao_salva_so_ctrl_s_salva() {
+    let mut app = app_nas_conexoes();
+    app.on_key(KeyEvent::from(KeyCode::Char('e')));
+    // `s` sem `ctrl` é texto no campo.
+    app.on_key(KeyEvent::from(KeyCode::Char('s')));
+    assert!(app.connection_edit.is_some(), "s sozinho não salva");
+    assert_eq!(
+        app.connection_edit
+            .as_ref()
+            .expect("pop-up")
+            .connection
+            .value(Field::Host),
+        "db.locals"
+    );
+    // `enter` também não salva.
+    app.on_key(KeyEvent::from(KeyCode::Enter));
+    assert!(app.connection_edit.is_some(), "enter não salva");
+    app.on_key(ctrl('s'));
+    assert!(app.connection_edit.is_none(), "ctrl+s salva");
+}
+
+fn ctrl_s_grava_a_conexao_editada_no_mesmo_lugar_da_lista() {
     let mut app = app_nas_conexoes();
     app.focus = Focus::Connections;
     app.on_key(KeyEvent::from(KeyCode::Char('e')));
@@ -130,7 +151,7 @@ fn enter_grava_a_conexao_editada_no_mesmo_lugar_da_lista() {
     for caractere in "novo.local".chars() {
         app.on_key(KeyEvent::from(KeyCode::Char(caractere)));
     }
-    app.on_key(KeyEvent::from(KeyCode::Char('s')));
+    app.on_key(ctrl('s'));
 
     assert!(app.connection_edit.is_none(), "o pop-up fecha ao salvar");
     let hosts: Vec<&str> = app
@@ -170,7 +191,7 @@ fn porta_invalida_mantem_o_popup_aberto_com_o_motivo() {
     for caractere in "abc".chars() {
         app.on_key(KeyEvent::from(KeyCode::Char(caractere)));
     }
-    app.on_key(KeyEvent::from(KeyCode::Char('s')));
+    app.on_key(ctrl('s'));
 
     assert!(app.connection_edit.is_some());
     assert!(matches!(app.status, Status::Failed(ref erro) if erro == "porta inválida: abc"));

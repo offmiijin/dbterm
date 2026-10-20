@@ -10,7 +10,7 @@ fn popup_de_conexao_mostra_servidor_e_autenticacao_agrupados() {
     assert!(tela.contains("\u{f044} Editar"), "{tela}");
     assert!(tela.contains("Servidor"), "{tela}");
     assert!(tela.contains("Autenticação"), "{tela}");
-    assert!(tela.contains("s salvar · esc cancelar"), "{tela}");
+    assert!(tela.contains("ctrl+s salvar · esc cancelar"), "{tela}");
 
     // Host, porta e banco em linhas seguidas, dentro do grupo "Servidor".
     let (_, yhost) = achar(buffer, "Host");
@@ -67,6 +67,6 @@ fn popup_de_conexao_corta_o_valor_longo_sem_quebrar_o_layout() {
     // O valor grande não empurra as linhas: o corte fica no começo, onde o
     // cursor não está, e o pop-up mantém as ações no lugar.
     assert!(tela.contains('…'), "{tela}");
-    assert!(tela.contains("s salvar · esc cancelar"), "{tela}");
+    assert!(tela.contains("ctrl+s salvar · esc cancelar"), "{tela}");
     assert!(tela.contains("Senha"), "{tela}");
 }

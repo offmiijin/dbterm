@@ -233,11 +233,22 @@ fn j_k_andam_nos_campos_do_popup_do_banco() {
 }
 
 #[test]
-fn s_no_popup_do_banco_fecha_sem_mudanca() {
+fn s_sozinho_nao_salva_no_popup_do_banco() {
+    let mut app = app_nos_bancos();
+    app.on_response(Response::DatabaseInfo(info_banco(Some(false))));
+    app.on_key(KeyEvent::from(KeyCode::Char('s')));
+    assert!(app.database_edit.is_some(), "s sozinho não salva");
+    // `enter` abre a lista em vez de salvar.
+    app.on_key(KeyEvent::from(KeyCode::Enter));
+    assert!(app.database_edit.is_some(), "enter não salva");
+    assert!(app.database_edit.as_ref().expect("pop-up").picker.is_some());
+}
+
+fn ctrl_s_no_popup_do_banco_fecha_sem_mudanca() {
     let mut app = app_nos_bancos();
     app.on_response(Response::DatabaseInfo(info_banco(Some(false))));
 
-    app.on_key(KeyEvent::from(KeyCode::Char('s')));
+    app.on_key(ctrl('s'));
 
     assert!(app.database_edit.is_none());
     assert!(!matches!(app.status, Status::Failed(_)));

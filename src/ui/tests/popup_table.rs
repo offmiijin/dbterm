@@ -20,7 +20,7 @@ fn popup_da_tabela_mostra_identificacao_armazenamento_e_padroes() {
     assert!(tela.contains("▾ utf8mb4"), "{tela}");
     assert!(tela.contains("utf8mb4_0900_ai_ci"), "{tela}");
     // No campo de texto com foco, `enter` salva.
-    assert!(tela.contains("enter salvar · esc cancelar"), "{tela}");
+    assert!(tela.contains("ctrl+s salvar · esc cancelar"), "{tela}");
 
     // A identificação vem antes do armazenamento, e os padrões por último.
     let identificacao = tela.find("Identificação").expect("identificação");
@@ -137,10 +137,10 @@ fn popup_da_tabela_mostra_as_teclas_da_lista_no_campo_de_lista() {
     let terminal = terminal_de(&mut app, 64, 20);
     let tela = texto(terminal.backend().buffer());
     assert!(
-        tela.contains("enter lista · s salvar · esc cancelar"),
+        tela.contains("enter lista · ctrl+s salvar · esc cancelar"),
         "{tela}"
     );
-    assert!(!tela.contains("enter salvar · esc cancelar"), "{tela}");
+    assert!(!tela.contains("enter salvar"), "{tela}");
 }
 
 #[test]

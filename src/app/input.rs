@@ -93,15 +93,18 @@ impl App {
     }
 
     /// Pop-up "Editar" da conexão: `tab` anda nos campos, `ctrl+h/j/k/l`
-    /// também, e `s` grava.
+    /// também, e `ctrl+s` grava.
     fn on_key_connection_edit(&mut self, key: KeyEvent) {
+        if is_save(key) {
+            self.save_connection_edit();
+            return;
+        }
         if let Some(delta) = ctrl_dir(key) {
             self.move_edit_field(delta);
             return;
         }
         match key.code {
             KeyCode::Esc => self.connection_edit = None,
-            KeyCode::Char('s') => self.save_connection_edit(),
             KeyCode::Tab | KeyCode::Down => self.move_edit_field(1),
             KeyCode::BackTab | KeyCode::Up => self.move_edit_field(-1),
             KeyCode::Backspace => {
@@ -133,8 +136,8 @@ impl App {
     }
 
     /// Pop-up "Editar" do banco: `j`/`k` andam nos campos, `enter` abre a lista
-    /// do campo (ou alterna o sim/não), `s` grava, `esc` descarta. `ctrl+h/j/k/l`
-    /// também andam nos campos.
+    /// do campo (ou alterna o sim/não), `ctrl+s` grava, `esc` descarta.
+    /// `ctrl+h/j/k/l` também andam nos campos.
     fn on_key_database_edit(&mut self, key: KeyEvent) {
         // A lista aberta fica por cima do pop-up e recebe as teclas.
         if let Some(edit) = self.database_edit.as_mut()
@@ -145,13 +148,16 @@ impl App {
             }
             return;
         }
+        if is_save(key) {
+            self.save_database_edit();
+            return;
+        }
         if let Some(delta) = ctrl_dir(key) {
             self.move_database_field(delta);
             return;
         }
         match key.code {
             KeyCode::Esc => self.database_edit = None,
-            KeyCode::Char('s') => self.save_database_edit(),
             KeyCode::Enter => {
                 if let Some(edit) = self.database_edit.as_mut() {
                     edit.activate();
@@ -163,10 +169,9 @@ impl App {
         }
     }
 
-    /// Pop-up "Editar" da tabela: como no banco, `enter` abre a lista do campo
-    /// e `s` grava — só que, nos campos digitados (`tabela`, `comentário`,
-    /// `auto-increment`), `enter` grava e `s` é texto. `ctrl+h/j/k/l` andam nos
-    /// campos.
+    /// Pop-up "Editar" da tabela: `enter` abre a lista do campo e `ctrl+s`
+    /// grava. Nos campos digitados (`tabela`, `comentário`, `auto-increment`),
+    /// `enter` não grava. `ctrl+h/j/k/l` andam nos campos.
     fn on_key_table_edit(&mut self, key: KeyEvent) {
         // A lista aberta fica por cima do pop-up e recebe as teclas.
         if let Some(edit) = self.table_edit.as_mut()
@@ -175,6 +180,10 @@ impl App {
             if let Some((campo, item)) = picker_key(&mut edit.picker, key) {
                 edit.choose(campo, item);
             }
+            return;
+        }
+        if is_save(key) {
+            self.save_table_edit();
             return;
         }
         if let Some(delta) = ctrl_dir(key) {
@@ -187,13 +196,11 @@ impl App {
             .is_some_and(|edit| edit.field.dropdown());
         match key.code {
             KeyCode::Esc => self.table_edit = None,
-            KeyCode::Char('s') if dropdown => self.save_table_edit(),
             KeyCode::Enter if dropdown => {
                 if let Some(edit) = self.table_edit.as_mut() {
                     edit.activate();
                 }
             }
-            KeyCode::Enter => self.save_table_edit(),
             KeyCode::Tab | KeyCode::Down => self.move_table_field(1),
             KeyCode::BackTab | KeyCode::Up => self.move_table_field(-1),
             KeyCode::Backspace => {
@@ -532,6 +539,13 @@ pub(super) fn step(current: Option<usize>, delta: isize, len: usize) -> Option<u
 pub(super) fn next<T: Copy + PartialEq>(atual: T, delta: isize, itens: &[T]) -> T {
     let indice = itens.iter().position(|item| *item == atual).unwrap_or(0);
     itens[(indice as isize + delta).rem_euclid(itens.len() as isize) as usize]
+}
+
+/// Salvamento dos pop-ups de edição: só `ctrl+s`, como o terminal entrega em
+/// modo bruto (`Char('s')` com `CONTROL`). O `s` sem `ctrl` é texto ou nada.
+fn is_save(key: KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Char('s') | KeyCode::Char('S'))
+        && key.modifiers.contains(KeyModifiers::CONTROL)
 }
 
 /// Direção pedida por `ctrl+h/j/k/l` nos pop-ups de edição: `h`/`k` voltam um
