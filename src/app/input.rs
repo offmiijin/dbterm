@@ -53,8 +53,15 @@ impl App {
         // `ctrl+p` abre o comando master a partir da navegação e das colunas,
         // sem interromper uma edição ou confirmação em andamento. Só na tela
         // de tabelas (lista ou registros): é lá que o SQL filtra os dados.
+        // O `;` abre direto no SQL e o `#`, na Tabela.
         if is_commands(key) && self.pode_abrir_comandos() {
             self.open_commands();
+            return;
+        }
+        if let Some(tab) = commands_prefix(key)
+            && self.pode_abrir_comandos()
+        {
+            self.open_commands_with(tab);
             return;
         }
         match self.mode {
@@ -615,6 +622,21 @@ fn is_save(key: KeyEvent) -> bool {
 fn is_commands(key: KeyEvent) -> bool {
     matches!(key.code, KeyCode::Char('p') | KeyCode::Char('P'))
         && key.modifiers.contains(KeyModifiers::CONTROL)
+}
+
+/// Abertura do comando master pelo prefixo: `;` cai no SQL e `#`, na Tabela.
+/// Sem `ctrl`/`alt`, para não conflitar com atalhos do terminal.
+fn commands_prefix(key: KeyEvent) -> Option<CommandTab> {
+    if key
+        .modifiers
+        .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+    {
+        return None;
+    }
+    match key.code {
+        KeyCode::Char(c) => CommandTab::from_prefix(c),
+        _ => None,
+    }
 }
 
 /// Execução da aba ativa do comando master: `ctrl+enter`.

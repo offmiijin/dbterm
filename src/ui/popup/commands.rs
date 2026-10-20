@@ -1,6 +1,6 @@
-//! Pop-up "Comandos": o comando master aberto com `ctrl+p`.
+//! Pop-up "Comandos": o comando master aberto com `ctrl+p`, `;` ou `#`.
 //!
-//! O prefixo do texto seleciona o comando: `;` é SQL, que filtra a grade com
+//! O prefixo fixo seleciona o comando: `;` é SQL, que filtra a grade com
 //! SQL livre (ex.: `;select COUNT(*) from users`), e `#` busca uma tabela
 //! pelo nome (ex.: `#products`), com a caixa de completar. O `enter`
 //! executa e o `tab` troca de aba levando o texto junto.
@@ -40,7 +40,7 @@ pub(crate) fn draw_commands(
 }
 
 /// Linha de abas: a ativa em destaque, as outras apagadas. Cada aba mostra o
-/// prefixo que a seleciona (`SQL ;`, `Table #`).
+/// prefixo que a seleciona (`SQL ;`, `Tabela #`).
 fn abas(ativa: CommandTab) -> Line<'static> {
     let mut spans = Vec::new();
     for (indice, aba) in CommandTab::ALL.iter().enumerate() {

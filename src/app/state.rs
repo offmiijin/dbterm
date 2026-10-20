@@ -68,8 +68,8 @@ pub enum Mode {
     ConfirmQuit,
 }
 
-/// Aba do pop-up "Comandos", aberto com `ctrl+p`. O prefixo do texto
-/// seleciona o comando: `;` é SQL e `#` é busca de tabela.
+/// Aba do pop-up "Comandos", aberto com `ctrl+p`, `;` ou `#`. O prefixo do
+/// texto é fixo e seleciona o comando: `;` é SQL e `#` é busca de tabela.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum CommandTab {
     /// Filtra a grade com SQL livre (ex.: `;select COUNT(*) from users`).
@@ -86,7 +86,7 @@ impl CommandTab {
     pub fn titulo(self) -> &'static str {
         match self {
             CommandTab::Sql => "SQL",
-            CommandTab::Table => "Table",
+            CommandTab::Table => "Tabela",
         }
     }
 
@@ -113,8 +113,9 @@ const MAX_SUGESTOES: usize = 6;
 
 /// Comando master em edição: a aba ativa e o texto digitado.
 ///
-/// O primeiro caractere seleciona o comando (`;` é SQL, `#` é busca de
-/// tabela) e não faz parte do que é executado.
+/// O primeiro caractere é o prefixo fixo do comando (`;` é SQL, `#` é busca
+/// de tabela) e não faz parte do que é executado: ele nunca é apagado, só
+/// trocado ao mudar de aba.
 #[derive(Debug)]
 pub struct Commands {
     pub tab: CommandTab,
@@ -129,24 +130,35 @@ impl Default for Commands {
 }
 
 impl Commands {
-    /// Abre o pop-up na primeira aba (SQL), já com o `;`.
+    /// Abre o pop-up na primeira aba (SQL), já com o `;` fixo.
     pub fn new() -> Self {
         Self::with_input(String::from(";"))
     }
 
+    /// Abre o pop-up direto na aba pedida, só com o prefixo fixo.
+    pub fn with_tab(tab: CommandTab) -> Self {
+        Self {
+            tab,
+            input: tab.atalho().to_string(),
+        }
+    }
+
     /// Reabre o pop-up com o texto do buffer (o último comando executado). A
-    /// aba acompanha o prefixo do texto.
+    /// aba acompanha o prefixo do texto; sem prefixo, volta ao `;` do SQL.
+    /// O prefixo é garantido: texto sem prefixo ganha o `;` na frente.
     pub fn with_input(input: String) -> Self {
-        let input = if input.is_empty() {
-            String::from(";")
-        } else {
-            input
-        };
+        if input.is_empty() {
+            return Self::with_tab(CommandTab::Sql);
+        }
         let tab = input
             .chars()
             .next()
             .and_then(CommandTab::from_prefix)
             .unwrap_or(CommandTab::Sql);
+        let input = match input.chars().next() {
+            Some(primeiro) if CommandTab::from_prefix(primeiro).is_some() => input,
+            _ => format!("{}{input}", CommandTab::Sql.atalho()),
+        };
         Self { tab, input }
     }
 
@@ -161,14 +173,6 @@ impl Commands {
             _ => self.input.clone(),
         };
         self.input = format!("{prefixo}{resto}");
-    }
-
-    /// A aba que o prefixo do texto seleciona, mantendo a atual quando o
-    /// texto está vazio ou sem prefixo de comando.
-    fn sync_tab(&mut self) {
-        if let Some(tab) = self.input.chars().next().and_then(CommandTab::from_prefix) {
-            self.tab = tab;
-        }
     }
 
     /// A consulta a executar: o texto sem o `;` inicial e sem espaços nas
@@ -207,16 +211,27 @@ impl Commands {
             .collect()
     }
 
-    /// Digita no fim da linha, onde fica o cursor; o prefixo troca a aba.
+    /// Digita no fim da linha, onde fica o cursor. Com só o prefixo na linha,
+    /// digitar o prefixo de outro comando troca de aba em vez de acumular
+    /// (ex.: `;` vira `#` e cai na Tabela); no resto, o prefixo é fixo e a
+    /// aba só muda pelo `tab`.
     pub fn type_char(&mut self, caractere: char) {
+        if self.input.chars().count() <= 1
+            && let Some(tab) = CommandTab::from_prefix(caractere)
+        {
+            self.tab = tab;
+            self.apply_prefix();
+            return;
+        }
         self.input.push(caractere);
-        self.sync_tab();
     }
 
-    /// Apaga o último caractere, até esvaziar a linha para trocar de comando.
+    /// Apaga o último caractere, sem nunca remover o prefixo fixo.
     pub fn backspace(&mut self) {
+        if self.input.chars().count() <= 1 {
+            return;
+        }
         self.input.pop();
-        self.sync_tab();
     }
 }
 

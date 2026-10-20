@@ -36,7 +36,7 @@ fn reabrir_volta_com_o_ponto_e_virgula() {
 }
 
 #[test]
-fn digitacao_entra_no_fim_e_apagar_tudo_libera_a_troca() {
+fn prefixo_e_fixo_e_troca_pelo_prefixo() {
     let mut app = app_navegando();
     app.on_key(ctrl('p'));
     for caractere in "select 1".chars() {
@@ -47,15 +47,21 @@ fn digitacao_entra_no_fim_e_apagar_tudo_libera_a_troca() {
     app.on_key(KeyEvent::from(KeyCode::Backspace));
     assert_eq!(app.commands.as_ref().expect("pop-up").input, ";select ");
 
-    // Apagar tudo esvazia a linha para trocar o prefixo do comando.
+    // Apagar tudo para no prefixo fixo, sem esvaziar a linha.
     for _ in 0..";select ".len() {
         app.on_key(KeyEvent::from(KeyCode::Backspace));
     }
     let commands = app.commands.as_ref().expect("pop-up");
-    assert_eq!(commands.input, "");
+    assert_eq!(commands.input, ";");
+    assert_eq!(commands.tab, crate::app::CommandTab::Sql);
 
-    // O `#` inicial seleciona a busca de tabela.
-    for caractere in "#pro".chars() {
+    // Com só o prefixo, digitar o `#` troca para a busca de tabela.
+    app.on_key(tecla('#'));
+    let commands = app.commands.as_ref().expect("pop-up");
+    assert_eq!(commands.tab, crate::app::CommandTab::Table);
+    assert_eq!(commands.input, "#");
+
+    for caractere in "pro".chars() {
         app.on_key(tecla(caractere));
     }
     let commands = app.commands.as_ref().expect("pop-up");
@@ -87,7 +93,7 @@ fn tab_troca_de_aba_levando_o_texto_junto() {
 fn reabrir_com_hash_volta_na_aba_table() {
     let mut app = app_nas_tabelas();
     app.on_key(ctrl('p'));
-    // O pop-up abre com o `;`: apaga e digita o prefixo da busca.
+    // O pop-up abre com o `;` fixo: digitar o `#` troca para a busca.
     app.on_key(KeyEvent::from(KeyCode::Backspace));
     for caractere in "#users".chars() {
         app.on_key(tecla(caractere));
@@ -197,15 +203,30 @@ fn ctrl_enter_com_sql_fecha_e_pede_a_consulta() {
 }
 
 #[test]
-fn ponto_e_virgula_fora_do_popup_nao_abre_o_comando() {
-    // O `;` só seleciona o comando com o pop-up aberto; fora dele é tecla morta.
+fn prefixos_fora_do_popup_abrem_o_comando() {
+    // O `;` abre direto no SQL e o `#`, na Tabela.
     let mut app = app_navegando();
     app.on_key(tecla(';'));
-    assert!(app.commands.is_none());
+    let commands = app.commands.as_ref().expect("pop-up aberto");
+    assert_eq!(commands.tab, crate::app::CommandTab::Sql);
+    assert_eq!(commands.input, ";");
+    app.on_key(KeyEvent::from(KeyCode::Esc));
 
+    let mut app = app_navegando();
+    app.on_key(tecla('#'));
+    let commands = app.commands.as_ref().expect("pop-up aberto");
+    assert_eq!(commands.tab, crate::app::CommandTab::Table);
+    assert_eq!(commands.input, "#");
+    app.on_key(KeyEvent::from(KeyCode::Esc));
+
+    // Nos registros também abre por fora.
     let mut app = app_com_grade();
     app.on_key(tecla(';'));
-    assert!(app.commands.is_none(), "nem nos registros abre por fora");
+    assert_eq!(
+        app.commands.as_ref().expect("pop-up aberto").input,
+        ";",
+        "nos registros abre por fora"
+    );
 }
 
 #[test]
@@ -217,6 +238,13 @@ fn fora_das_tabelas_o_ctrl_p_nao_abre() {
     let mut app = app_nas_conexoes();
     app.on_key(ctrl('p'));
     assert!(app.commands.is_none(), "nas conexões não abre");
+
+    // Os prefixos obedecem a mesma regra do `ctrl+p`.
+    let mut app = app_nos_bancos();
+    app.on_key(tecla(';'));
+    assert!(app.commands.is_none(), "`;` nos bancos não abre");
+    app.on_key(tecla('#'));
+    assert!(app.commands.is_none(), "`#` nos bancos não abre");
 }
 
 #[test]

@@ -16,6 +16,12 @@ impl App {
         self.reopen_commands();
     }
 
+    /// `;`/`#`: abre o comando master direto na aba do prefixo, só com o
+    /// prefixo fixo.
+    pub(super) fn open_commands_with(&mut self, tab: super::state::CommandTab) {
+        self.commands = Some(super::state::Commands::with_tab(tab));
+    }
+
     /// Mostra o pop-up de volta com o texto do buffer, na aba do prefixo.
     fn reopen_commands(&mut self) {
         self.commands = Some(super::state::Commands::with_input(
