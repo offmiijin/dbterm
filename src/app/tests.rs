@@ -1,4 +1,4 @@
-use ratatui::crossterm::event::{KeyCode, KeyEvent};
+use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::input::{PAGE, step};
 use super::*;
@@ -1016,6 +1016,39 @@ fn tab_anda_nos_campos_do_popup_na_ordem_da_tela() {
 }
 
 #[test]
+fn ctrl_hjkl_anda_nos_campos_do_popup_da_conexao() {
+    let mut app = app_nas_conexoes();
+    app.on_key(KeyEvent::from(KeyCode::Char('e')));
+    let campo = |app: &App| app.connection_edit.as_ref().expect("pop-up").field;
+
+    app.on_key(ctrl('l'));
+    assert_eq!(campo(&app), Field::Port, "para a direita, a porta");
+    app.on_key(ctrl('j'));
+    assert_eq!(campo(&app), Field::Database);
+    app.on_key(ctrl('j'));
+    assert_eq!(campo(&app), Field::User);
+    app.on_key(ctrl('j'));
+    assert_eq!(campo(&app), Field::Password);
+    app.on_key(ctrl('h'));
+    assert_eq!(campo(&app), Field::User);
+    app.on_key(ctrl('k'));
+    assert_eq!(campo(&app), Field::Database);
+    // Do banco, `ctrl+k` volta para a porta, um campo por vez.
+    app.on_key(ctrl('k'));
+    assert_eq!(campo(&app), Field::Port);
+
+    // `ctrl` não digita no campo com foco.
+    assert_eq!(
+        app.connection_edit
+            .as_ref()
+            .expect("pop-up")
+            .connection
+            .value(Field::Host),
+        "db.local"
+    );
+}
+
+#[test]
 fn digitar_no_popup_edita_o_campo_com_foco_sem_sair() {
     let mut app = app_nas_conexoes();
     app.on_key(KeyEvent::from(KeyCode::Char('e')));
@@ -1283,6 +1316,36 @@ fn j_k_na_lista_param_nos_limites() {
 }
 
 #[test]
+fn ctrl_hjkl_anda_na_lista_do_popup() {
+    let mut app = app_nos_bancos();
+    app.on_response(Response::DatabaseInfo(info_banco(Some(false))));
+    app.on_key(KeyEvent::from(KeyCode::Enter));
+    let indice = |app: &App| {
+        app.database_edit
+            .as_ref()
+            .expect("pop-up")
+            .picker
+            .as_ref()
+            .expect("lista")
+            .index
+    };
+
+    app.on_key(ctrl('k'));
+    assert_eq!(indice(&app), 0, "a lista abre no valor atual");
+    app.on_key(ctrl('l'));
+    assert_eq!(indice(&app), 1);
+    app.on_key(ctrl('h'));
+    assert_eq!(indice(&app), 0);
+    app.on_key(ctrl('j'));
+    assert_eq!(indice(&app), 1);
+    app.on_key(KeyEvent::from(KeyCode::Enter));
+    assert_eq!(
+        app.database_edit.as_ref().expect("pop-up").values.charset,
+        "utf8mb4"
+    );
+}
+
+#[test]
 fn esc_na_lista_volta_ao_popup_sem_escolher() {
     let mut app = app_nos_bancos();
     app.on_response(Response::DatabaseInfo(info_banco(Some(false))));
@@ -1442,6 +1505,11 @@ fn tecla(caractere: char) -> KeyEvent {
     KeyEvent::from(KeyCode::Char(caractere))
 }
 
+/// Tecla com Ctrl, como o terminal a entrega em modo bruto.
+fn ctrl(caractere: char) -> KeyEvent {
+    KeyEvent::new(KeyCode::Char(caractere), KeyModifiers::CONTROL)
+}
+
 #[test]
 fn e_nas_tabelas_pede_as_propriedades() {
     let mut app = app_nas_tabelas();
@@ -1497,6 +1565,45 @@ fn tabela_sem_auto_increment_esconde_o_campo() {
         app.table_edit.as_ref().expect("pop-up").field,
         TableField::Charset
     );
+}
+
+#[test]
+fn ctrl_hjkl_anda_nos_campos_do_popup_do_banco() {
+    let mut app = app_nos_bancos();
+    app.on_response(Response::DatabaseInfo(info_banco(Some(false))));
+    let campo = |app: &App| app.database_edit.as_ref().expect("pop-up").field;
+
+    app.on_key(ctrl('j'));
+    assert_eq!(campo(&app), DatabaseField::Collation);
+    app.on_key(ctrl('l'));
+    assert_eq!(campo(&app), DatabaseField::ReadOnly);
+    app.on_key(ctrl('k'));
+    assert_eq!(campo(&app), DatabaseField::Collation);
+    app.on_key(ctrl('h'));
+    assert_eq!(campo(&app), DatabaseField::Charset);
+    // `ctrl+h` no primeiro campo dá a volta e cai no último.
+    app.on_key(ctrl('h'));
+    assert_eq!(campo(&app), DatabaseField::ReadOnly);
+}
+
+#[test]
+fn ctrl_hjkl_anda_nos_campos_do_popup_da_tabela() {
+    let mut app = app_com_popup_de_tabela();
+    let campo = |app: &App| app.table_edit.as_ref().expect("pop-up").field;
+
+    app.on_key(ctrl('l'));
+    assert_eq!(campo(&app), TableField::Comment);
+    assert_eq!(
+        app.table_edit.as_ref().expect("pop-up").values.name,
+        "users",
+        "`ctrl` não digita no campo de texto"
+    );
+    app.on_key(ctrl('j'));
+    assert_eq!(campo(&app), TableField::Engine);
+    app.on_key(ctrl('k'));
+    assert_eq!(campo(&app), TableField::Comment);
+    app.on_key(ctrl('h'));
+    assert_eq!(campo(&app), TableField::Name);
 }
 
 #[test]

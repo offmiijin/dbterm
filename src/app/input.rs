@@ -91,8 +91,13 @@ impl App {
         self.field = next(self.field, delta, campos);
     }
 
-    /// Pop-up "Editar" da conexão: `tab` anda nos campos e `s` grava.
+    /// Pop-up "Editar" da conexão: `tab` anda nos campos, `ctrl+h/j/k/l`
+    /// também, e `s` grava.
     fn on_key_connection_edit(&mut self, key: KeyEvent) {
+        if let Some(delta) = ctrl_dir(key) {
+            self.move_edit_field(delta);
+            return;
+        }
         match key.code {
             KeyCode::Esc => self.connection_edit = None,
             KeyCode::Char('s') => self.save_connection_edit(),
@@ -127,7 +132,8 @@ impl App {
     }
 
     /// Pop-up "Editar" do banco: `j`/`k` andam nos campos, `enter` abre a lista
-    /// do campo (ou alterna o sim/não), `s` grava, `esc` descarta.
+    /// do campo (ou alterna o sim/não), `s` grava, `esc` descarta. `ctrl+h/j/k/l`
+    /// também andam nos campos.
     fn on_key_database_edit(&mut self, key: KeyEvent) {
         // A lista aberta fica por cima do pop-up e recebe as teclas.
         if let Some(edit) = self.database_edit.as_mut()
@@ -136,6 +142,10 @@ impl App {
             if let Some((campo, item)) = picker_key(&mut edit.picker, key) {
                 edit.choose(campo, item);
             }
+            return;
+        }
+        if let Some(delta) = ctrl_dir(key) {
+            self.move_database_field(delta);
             return;
         }
         match key.code {
@@ -154,7 +164,8 @@ impl App {
 
     /// Pop-up "Editar" da tabela: como no banco, `enter` abre a lista do campo
     /// e `s` grava — só que, nos campos digitados (`tabela`, `comentário`,
-    /// `auto-increment`), `enter` grava e `s` é texto.
+    /// `auto-increment`), `enter` grava e `s` é texto. `ctrl+h/j/k/l` andam nos
+    /// campos.
     fn on_key_table_edit(&mut self, key: KeyEvent) {
         // A lista aberta fica por cima do pop-up e recebe as teclas.
         if let Some(edit) = self.table_edit.as_mut()
@@ -163,6 +174,10 @@ impl App {
             if let Some((campo, item)) = picker_key(&mut edit.picker, key) {
                 edit.choose(campo, item);
             }
+            return;
+        }
+        if let Some(delta) = ctrl_dir(key) {
+            self.move_table_field(delta);
             return;
         }
         let dropdown = self
@@ -518,9 +533,30 @@ pub(super) fn next<T: Copy + PartialEq>(atual: T, delta: isize, itens: &[T]) -> 
     itens[(indice as isize + delta).rem_euclid(itens.len() as isize) as usize]
 }
 
+/// Direção pedida por `ctrl+h/j/k/l` nos pop-ups de edição: `h`/`k` voltam um
+/// campo e `l`/`j` avançam, como as setas. `None` quando a tecla não é uma
+/// delas.
+fn ctrl_dir(key: KeyEvent) -> Option<isize> {
+    if !key.modifiers.contains(KeyModifiers::CONTROL) {
+        return None;
+    }
+    match key.code {
+        KeyCode::Char('h') | KeyCode::Char('k') => Some(-1),
+        KeyCode::Char('j') | KeyCode::Char('l') => Some(1),
+        _ => None,
+    }
+}
+
 /// Lista de opções aberta sobre um pop-up: `j`/`k` andam, `enter` escolhe e
 /// `esc` volta. Devolve o campo e o item quando a escolha foi confirmada.
 fn picker_key<F: Copy>(picker: &mut Option<Picker<F>>, key: KeyEvent) -> Option<(F, String)> {
+    // `ctrl+h/j/k/l` anda na lista como `k`/`j`.
+    if let Some(delta) = ctrl_dir(key) {
+        if let Some(picker) = picker.as_mut() {
+            picker.index = step(Some(picker.index), delta, picker.items.len()).unwrap_or(0);
+        }
+        return None;
+    }
     match key.code {
         KeyCode::Esc => {
             *picker = None;
