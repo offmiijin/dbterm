@@ -258,6 +258,17 @@ impl TableEdit {
         }
     }
 
+    /// Apaga a palavra anterior (`alt+backspace`) do campo de texto com foco.
+    pub fn delete_word(&mut self) {
+        use super::state::apagar_palavra_anterior;
+        match self.field {
+            TableField::Name => apagar_palavra_anterior(&mut self.values.name, 0),
+            TableField::Comment => apagar_palavra_anterior(&mut self.values.comment, 0),
+            TableField::AutoIncrement => apagar_palavra_anterior(&mut self.auto_increment, 0),
+            _ => {}
+        }
+    }
+
     /// As opções que mudaram, a partir do que o pop-up tem agora.
     ///
     /// O auto-increment fica como está quando o campo é apagado; um valor

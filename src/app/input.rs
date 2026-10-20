@@ -3,7 +3,7 @@
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::App;
-use super::state::{CommandTab, Edit, Focus, Mode, Picker, Screen, Status};
+use super::state::{CommandTab, Edit, Focus, Mode, Picker, Screen, Status, apagar_palavra_anterior};
 use crate::config::Field;
 
 /// Quantas linhas PgUp/PgDn andam.
@@ -91,7 +91,11 @@ impl App {
             KeyCode::Tab | KeyCode::Down => self.move_field(1, &Field::ALL),
             KeyCode::BackTab | KeyCode::Up => self.move_field(-1, &Field::ALL),
             KeyCode::Backspace => {
-                self.connection.value_mut(self.field).pop();
+                if is_alt_backspace(key) {
+                    apagar_palavra_anterior(self.connection.value_mut(self.field), 0);
+                } else {
+                    self.connection.value_mut(self.field).pop();
+                }
                 self.connect_error = None;
             }
             KeyCode::Char(c)
@@ -129,7 +133,11 @@ impl App {
             KeyCode::Backspace => {
                 if let Some(edit) = self.connection_edit.as_mut() {
                     let field = edit.field;
-                    edit.connection.value_mut(field).pop();
+                    if is_alt_backspace(key) {
+                        apagar_palavra_anterior(edit.connection.value_mut(field), 0);
+                    } else {
+                        edit.connection.value_mut(field).pop();
+                    }
                 }
             }
             KeyCode::Char(c)
@@ -224,7 +232,11 @@ impl App {
             KeyCode::BackTab | KeyCode::Up => self.move_table_field(-1),
             KeyCode::Backspace => {
                 if let Some(edit) = self.table_edit.as_mut() {
-                    edit.backspace();
+                    if is_alt_backspace(key) {
+                        edit.delete_word();
+                    } else {
+                        edit.backspace();
+                    }
                 }
             }
             KeyCode::Char(c)
@@ -279,7 +291,11 @@ impl App {
             KeyCode::BackTab => self.move_commands_tab(-1),
             KeyCode::Backspace => {
                 if let Some(commands) = self.commands.as_mut() {
-                    commands.backspace();
+                    if is_alt_backspace(key) {
+                        commands.delete_word();
+                    } else {
+                        commands.backspace();
+                    }
                 }
             }
             KeyCode::Char(c)
@@ -411,7 +427,11 @@ impl App {
             KeyCode::Enter => self.mode = Mode::Confirm,
             KeyCode::Backspace => {
                 if let Some(edit) = self.edit.as_mut() {
-                    edit.input.pop();
+                    if is_alt_backspace(key) {
+                        apagar_palavra_anterior(&mut edit.input, 0);
+                    } else {
+                        edit.input.pop();
+                    }
                 }
             }
             KeyCode::Char(c)
@@ -672,6 +692,14 @@ fn commands_prefix(key: KeyEvent) -> Option<CommandTab> {
 /// puro também executa. No pop-up de linha única ele não tem outro papel.
 fn is_execute(key: KeyEvent) -> bool {
     matches!(key.code, KeyCode::Enter)
+}
+
+/// Apagar palavra anterior: só `alt+backspace`, sem `ctrl` junto. O `ctrl`
+/// sozinho (ou puro) apaga um caractere, como antes.
+fn is_alt_backspace(key: KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Backspace)
+        && key.modifiers.contains(KeyModifiers::ALT)
+        && !key.modifiers.contains(KeyModifiers::CONTROL)
 }
 
 /// Direção pedida por `ctrl+h/j/k/l` nos pop-ups de edição: `h`/`k` voltam um

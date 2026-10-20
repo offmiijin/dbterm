@@ -274,6 +274,37 @@ impl Commands {
         self.input.pop();
         self.sugestao = 0;
     }
+
+    /// Apaga a palavra anterior (`alt+backspace`), sem nunca remover o
+    /// prefixo fixo. Descarta espaços no fim e depois a palavra até o
+    /// espaço anterior.
+    pub fn delete_word(&mut self) {
+        apagar_palavra_anterior(&mut self.input, 1);
+        self.sugestao = 0;
+    }
+}
+
+/// Apaga a palavra anterior ao cursor (que está sempre no fim da linha).
+/// `preservar_chars` protege o começo do texto (ex.: o prefixo fixo `;`/`#`
+/// do comando master, que nunca sai). Primeiro descarta os espaços no fim e
+/// depois a palavra até o espaço anterior ou o limite preservado.
+pub(crate) fn apagar_palavra_anterior(texto: &mut String, preservar_chars: usize) {
+    if texto.chars().count() <= preservar_chars {
+        return;
+    }
+    while texto.chars().count() > preservar_chars
+        && texto.chars().next_back().is_some_and(|c| c.is_whitespace())
+    {
+        texto.pop();
+    }
+    while texto.chars().count() > preservar_chars
+        && texto
+            .chars()
+            .next_back()
+            .is_some_and(|c| !c.is_whitespace())
+    {
+        texto.pop();
+    }
 }
 
 /// Edição em andamento de uma célula.
