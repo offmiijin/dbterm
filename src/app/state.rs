@@ -26,18 +26,22 @@ pub enum Focus {
     Databases,
     /// Lista de tabelas do banco atual.
     Tables,
-    /// Grade de dados à direita.
+    /// Grade de dados ou editor da query ao centro.
     Data,
+    /// Lista de queries na lateral direita.
+    Queries,
 }
 
 impl Focus {
-    /// O nível anterior da cascata; `None` na conexão, a raiz.
+    /// O nível anterior da cascata; `None` na conexão, a raiz. As queries
+    /// voltam às tabelas, de onde o usuário veio.
     pub fn above(self) -> Option<Focus> {
         match self {
             Focus::Connections => None,
             Focus::Databases => Some(Focus::Connections),
             Focus::Tables => Some(Focus::Databases),
             Focus::Data => Some(Focus::Tables),
+            Focus::Queries => Some(Focus::Tables),
         }
     }
 }
@@ -115,6 +119,76 @@ impl CommandTab {
             .iter()
             .find(|aba| aba.atalho() == prefixo)
             .copied()
+    }
+}
+
+/// Aba da lateral direita, espelhando as abas da esquerda (conexões,
+/// bancos, tabelas). A primeira é a de queries: cada item é uma instância
+/// de query com seu próprio texto.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum RightTab {
+    /// Instâncias de query para escrever SQL livre.
+    Queries,
+}
+
+impl RightTab {
+    /// Todas as abas, na ordem em que aparecem no painel.
+    pub const ALL: [RightTab; 1] = [RightTab::Queries];
+
+    /// Rótulo mostrado na linha de abas.
+    pub fn titulo(self) -> &'static str {
+        match self {
+            RightTab::Queries => "queries",
+        }
+    }
+
+    /// Ícone Nerd Font da aba, mostrado antes do rótulo.
+    pub fn icone(self) -> char {
+        match self {
+            // terminal
+            RightTab::Queries => '\u{f120}',
+        }
+    }
+
+    /// Letra que leva direto à aba.
+    pub fn atalho(self) -> char {
+        match self {
+            // `q` já sai da aplicação; o `u` de qUeries leva às queries.
+            RightTab::Queries => 'u',
+        }
+    }
+}
+
+/// Uma instância de query: um rascunho nomeado de SQL na aba da direita.
+/// Selecionar a instância mostra o editor vazio no centro, no lugar da
+/// grade de registros.
+#[derive(Debug, Clone)]
+pub struct QueryInstance {
+    /// Contador na criação (`q1`, `q2`, ...); só exibição e identidade.
+    pub id: usize,
+    /// Nome curto mostrado na lista e no topo do editor.
+    pub nome: String,
+    /// Texto do editor, vazio ao criar.
+    pub sql: String,
+}
+
+impl QueryInstance {
+    /// Nova instância vazia, nomeada `q{id}`.
+    pub fn new(id: usize) -> Self {
+        Self {
+            id,
+            nome: format!("q{id}"),
+            sql: String::new(),
+        }
+    }
+
+    /// Resumo para a lista da direita: nome e tamanho ou `vazio`.
+    pub fn resumo(&self) -> String {
+        if self.sql.is_empty() {
+            String::from("vazio")
+        } else {
+            format!("{} chars", self.sql.chars().count())
+        }
     }
 }
 

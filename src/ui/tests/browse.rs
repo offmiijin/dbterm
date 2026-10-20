@@ -38,7 +38,8 @@ fn colunas_tem_traco_divisorio() {
 fn cabecalho_nao_e_espremido_em_grade_estreita() {
     // Sem o cálculo de largura, o `Table` encolhe tudo e o cabeçalho vira
     // "c", "l", "n" — todas as colunas precisam aparecer por inteiro.
-    let screen = screen_at(&mut app_largo(), 120);
+    // (150 com a lateral de queries equivale aos 120 de antes.)
+    let screen = screen_at(&mut app_largo(), 150);
     for nome in [
         "id",
         "name",

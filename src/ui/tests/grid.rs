@@ -2,9 +2,10 @@ use super::*;
 
 #[test]
 fn muitas_colunas_mostram_o_nome_do_cabecalho_inteiro() {
-    // 14 colunas não cabem em 100 colunas de terminal: sem a rolagem
+    // 14 colunas não cabem em 130 colunas de terminal: sem a rolagem
     // horizontal, o `Table` espreme o cabeçalho e sobra só a inicial.
-    let screen = screen_at(&mut app_com_muitas_colunas(), 100);
+    // (130 com a lateral de queries equivale aos 100 de antes.)
+    let screen = screen_at(&mut app_com_muitas_colunas(), 130);
     for nome in ["id", "name", "email", "active"] {
         assert!(screen.contains(nome), "faltou {nome}: {screen}");
     }
@@ -133,7 +134,8 @@ fn linha_do_sql_tem_icone_e_cores_da_execucao() {
     app.query_sql = Some(String::from(
         "SELECT * FROM objetos WHERE cod_empresa = 189",
     ));
-    let terminal = terminal_de(&mut app, 100, 12);
+    // 130 com a lateral de queries equivale aos 100 de antes.
+    let terminal = terminal_de(&mut app, 130, 12);
     let buffer = terminal.backend().buffer();
 
     // O ícone de tabela abre a linha, na cor de destaque.

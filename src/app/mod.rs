@@ -17,8 +17,8 @@ mod state;
 mod tests;
 
 pub use state::{
-    CommandTab, Commands, ConnectionEdit, DatabaseEdit, Edit, Focus, Mode, Picker, Screen, Status,
-    TableEdit,
+    CommandTab, Commands, ConnectionEdit, DatabaseEdit, Edit, Focus, Mode, Picker, QueryInstance,
+    RightTab, Screen, Status, TableEdit,
 };
 
 use std::io;
@@ -78,6 +78,17 @@ pub struct App {
     /// Último comando do pop-up: reabrir mostra o texto de volta, na aba do
     /// prefixo (`;` é SQL, `#` é busca de tabela).
     pub commands_buffer: String,
+    /// Aba ativa da lateral direita (hoje só queries).
+    pub right_tab: RightTab,
+    /// Instâncias de query criadas na aba da direita.
+    pub queries: Vec<QueryInstance>,
+    /// Seleção na lista de queries.
+    pub queries_state: ListState,
+    /// Próximo contador de instância (`q1`, `q2`, ...).
+    pub next_query: usize,
+    /// Instância aberta no centro: o editor substitui a grade enquanto
+    /// houver uma aqui. Abrir uma tabela limpa e volta à grade.
+    pub active_query: Option<usize>,
     pub should_quit: bool,
     /// Seleção nas listas de conexões, bancos e tabelas. Só a do nível ativo
     /// aparece, mas cada uma guarda onde o usuário parou.
@@ -141,6 +152,11 @@ impl App {
             table_edit: None,
             commands: None,
             commands_buffer: String::new(),
+            right_tab: RightTab::Queries,
+            queries: Vec::new(),
+            queries_state: ListState::default(),
+            next_query: 1,
+            active_query: None,
             should_quit: false,
             connections_state: ListState::default(),
             databases_state: ListState::default(),

@@ -200,6 +200,68 @@ impl App {
         });
     }
 
+    /// Cria uma instância de query vazia na aba da direita e abre o editor
+    /// no centro, com o foco nos dados para digitar na hora.
+    pub(crate) fn new_query(&mut self) {
+        let id = self.next_query;
+        self.next_query += 1;
+        self.queries.push(super::state::QueryInstance::new(id));
+        let index = self.queries.len() - 1;
+        self.queries_state.select(Some(index));
+        self.active_query = Some(index);
+        self.focus = super::state::Focus::Data;
+        self.mode = super::state::Mode::Rows;
+        self.column = None;
+        self.status = super::state::Status::Ready;
+    }
+
+    /// Abre a query selecionada na lista: o centro vira o editor dela.
+    pub(crate) fn open_selected_query(&mut self) {
+        let Some(index) = self.queries_state.selected() else {
+            return;
+        };
+        if index >= self.queries.len() {
+            return;
+        }
+        self.active_query = Some(index);
+        self.focus = super::state::Focus::Data;
+        self.mode = super::state::Mode::Rows;
+        self.column = None;
+    }
+
+    /// Apaga a query selecionada; se era a aberta, o centro volta à grade.
+    pub(super) fn delete_selected_query(&mut self) {
+        let Some(index) = self.queries_state.selected() else {
+            return;
+        };
+        if index >= self.queries.len() {
+            return;
+        }
+        self.queries.remove(index);
+        if self.queries.is_empty() {
+            self.queries_state = ratatui::widgets::ListState::default();
+            self.active_query = None;
+            return;
+        }
+        let nova = index.min(self.queries.len() - 1);
+        self.queries_state.select(Some(nova));
+        self.active_query = match self.active_query {
+            Some(aberta) if aberta == index => None,
+            Some(aberta) if aberta > index => Some(aberta - 1),
+            outra => outra,
+        };
+    }
+
+    /// A query cujo editor está no centro, se ainda existe.
+    pub fn current_query(&self) -> Option<&super::state::QueryInstance> {
+        self.active_query.and_then(|index| self.queries.get(index))
+    }
+
+    /// Verdadeiro quando o centro mostra o editor em vez da grade.
+    pub fn is_query_editor(&self) -> bool {
+        self.current_query().is_some()
+    }
+
     /// Abre a conexão selecionada na lista de conexões salvas.
     pub(super) fn open_selected_connection(&mut self) {
         let Some(saved) = self
@@ -418,8 +480,10 @@ impl App {
 
     /// Pede a tabela do começo; recarregar a mesma mantém as páginas já
     /// carregadas, que só se perdem ao abrir outra tabela. Sair da consulta
-    /// (`;`) é abrir a tabela: a grade volta ao modo de tabela.
+    /// (`;`) é abrir a tabela: a grade volta ao modo de tabela. Abrir uma
+    /// tabela também fecha o editor de query, que volta a ser a grade.
     pub(super) fn load(&mut self, table: String) {
+        self.active_query = None;
         self.status = super::state::Status::Loading(table.clone());
         self.loading_more = false;
         self.end_reached = false;

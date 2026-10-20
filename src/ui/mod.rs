@@ -15,17 +15,22 @@ mod text;
 use ratatui::Frame;
 use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, List, ListItem, Paragraph};
+use ratatui::widgets::{Block, BorderType, List, ListItem, ListState, Paragraph, TableState};
 
-use crate::app::{App, Focus, Mode, Screen, Status};
+use crate::app::{App, Focus, Mode, QueryInstance, RightTab, Screen, Status};
 use crate::db::TableData;
 use crate::history::Saved;
 use crate::theme;
 use crate::view::largura;
 
-const KEYS: &str = "q sair · c/b/t nível · esc subir · j/k mover · enter abrir · h/l colunas · r recarregar · g/G topo/fim";
+const KEYS: &str = "q sair · c/b/t/u nível · esc subir · j/k mover · enter abrir · h/l colunas · r recarregar · g/G topo/fim";
 /// Na cascata o `e` entra como ação de edição do nível ativo.
-const KEYS_WITH_EDIT: &str = "q sair · c/b/t nível · esc subir · e editar · j/k mover · enter abrir · r recarregar · g/G topo/fim";
+const KEYS_WITH_EDIT: &str = "q sair · c/b/t/u nível · esc subir · e editar · j/k mover · enter abrir · r recarregar · g/G topo/fim";
+/// Teclas da lista de queries na lateral direita.
+const QUERIES_KEYS: &str =
+    "q sair · c/b/t nível · esc subir · j/k mover · enter abrir · n nova · d apagar · g/G topo/fim";
+/// Teclas do editor de query no centro (tudo digita no rascunho).
+const QUERY_EDITOR_KEYS: &str = "esc volta às queries · enter quebra linha";
 /// Teclas dos pop-ups de edição (conexão, banco e tabela).
 const POPUP_KEYS: &str = "ctrl+s salvar · esc cancelar";
 /// Teclas da lista de opções aberta sobre um pop-up de edição.
@@ -91,6 +96,10 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         table_edit,
         commands,
         history,
+        right_tab,
+        queries,
+        queries_state,
+        active_query,
         ..
     } = app;
 
@@ -100,34 +109,148 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         Constraint::Length(1),
     ])
     .areas(frame.area());
-    let [side, main] =
-        Layout::horizontal([Constraint::Length(34), Constraint::Min(20)]).areas(body);
+    // Três colunas só quando há espaço (34 + 20 + 28 = 82): em terminal
+    // estreito a direita se esconde e as queries aparecem na lateral
+    // esquerda, no lugar da cascata, enquanto o foco está nelas.
+    let mostrar_direita = body.width >= 90;
+    if mostrar_direita {
+        let [side, center, right] = Layout::horizontal([
+            Constraint::Length(34),
+            Constraint::Min(20),
+            Constraint::Length(28),
+        ])
+        .areas(body);
+        draw_lateral_esquerda(
+            frame,
+            side,
+            history,
+            databases,
+            tables,
+            connections_state,
+            databases_state,
+            list_state,
+            *focus,
+        );
+        draw_lateral_direita(frame, right, *right_tab, queries, queries_state, *focus);
+        draw_centro(
+            frame,
+            center,
+            data,
+            query_sql.as_deref(),
+            table_state,
+            *column,
+            *hscroll,
+            larguras,
+            mode,
+            *focus,
+            database,
+            active_query.and_then(|index| queries.get(index)),
+        );
+    } else {
+        let [side, main] =
+            Layout::horizontal([Constraint::Length(34), Constraint::Min(20)]).areas(body);
+        if *focus == Focus::Queries {
+            draw_lateral_direita(frame, side, *right_tab, queries, queries_state, *focus);
+        } else {
+            draw_lateral_esquerda(
+                frame,
+                side,
+                history,
+                databases,
+                tables,
+                connections_state,
+                databases_state,
+                list_state,
+                *focus,
+            );
+        }
+        draw_centro(
+            frame,
+            main,
+            data,
+            query_sql.as_deref(),
+            table_state,
+            *column,
+            *hscroll,
+            larguras,
+            mode,
+            *focus,
+            database,
+            active_query.and_then(|index| queries.get(index)),
+        );
+    }
 
     draw_header(frame, header, server, database, current.as_deref());
 
-    // Nos registros, o nível de contexto continua sendo o das tabelas.
-    let ativo = match *focus {
-        Focus::Data => Focus::Tables,
+    // A lista aberta, em qualquer pop-up, fica com as teclas do rodapé.
+    let lista_aberta = database_edit
+        .as_ref()
+        .is_some_and(|edit| edit.picker.is_some())
+        || table_edit
+            .as_ref()
+            .is_some_and(|edit| edit.picker.is_some());
+    let editor_aberto = active_query.and_then(|index| queries.get(index)).is_some();
+    let teclas = if commands.is_some() {
+        popup::commands_keys()
+    } else if lista_aberta {
+        PICKER_KEYS
+    } else if let Some(edit) = table_edit.as_ref() {
+        popup::table_keys(edit)
+    } else if connection_edit.is_some() || database_edit.is_some() {
+        POPUP_KEYS
+    } else if editor_aberto && *focus == Focus::Data {
+        QUERY_EDITOR_KEYS
+    } else if *focus == Focus::Queries {
+        QUERIES_KEYS
+    } else {
+        keys(*mode, *focus)
+    };
+    draw_footer(frame, footer, status, teclas, data, *end_reached);
+    popup::draw_overlays(
+        frame,
+        frame.area(),
+        mode,
+        edit.as_ref(),
+        data.as_ref(),
+        current.as_deref(),
+    );
+    popup::draw_connection_edit(frame, frame.area(), connection_edit.as_ref());
+    popup::draw_database_edit(frame, frame.area(), database_edit.as_ref());
+    popup::draw_table_edit(frame, frame.area(), table_edit.as_ref());
+    popup::draw_commands(frame, frame.area(), commands.as_ref(), tables);
+}
+
+/// Lateral esquerda: chips e lista do nível ativo da cascata. Nas queries
+/// e nos registros, o contexto continua sendo o das tabelas.
+#[allow(clippy::too_many_arguments)]
+fn draw_lateral_esquerda(
+    frame: &mut Frame,
+    area: Rect,
+    history: &crate::history::History,
+    databases: &[String],
+    tables: &[String],
+    connections_state: &mut ListState,
+    databases_state: &mut ListState,
+    list_state: &mut ListState,
+    focus: Focus,
+) {
+    let ativo = match focus {
+        Focus::Data | Focus::Queries => Focus::Tables,
         outro => outro,
     };
-    let [chips, lista] = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(side);
+    let [chips, lista] = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(area);
     let contagens = [history.all().len(), databases.len(), tables.len()];
-    // Os chips ficam centralizados sobre o painel logo abaixo.
     frame.render_widget(
         Paragraph::new(chips_line(ativo, contagens)).centered(),
         chips,
     );
-
     let (itens, state) = match ativo {
         Focus::Connections => (
             history.all().iter().map(conexao_item).collect::<Vec<_>>(),
             connections_state,
         ),
         Focus::Databases => (
-            databases
-                .iter()
-                .map(database_item)
-                .collect::<Vec<_>>(),
+            databases.iter().map(database_item).collect::<Vec<_>>(),
             databases_state,
         ),
         _ => (
@@ -136,18 +259,59 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         ),
     };
     let list = List::new(itens)
-        .block(panel(String::new(), *focus == ativo))
+        .block(panel(String::new(), focus == ativo))
         .highlight_symbol("❯ ")
         .highlight_style(theme::selected());
     frame.render_stateful_widget(list, lista, state);
+}
 
-    // Faixa da busca executada, sempre reservada para a grade não pular:
-    // com busca mostra a base por extenso (cortada no fim quando não cabe),
-    // sem busca fica em branco e a grade segue na mesma linha.
-    let [faixa, main] = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(main);
-    if let Some(sql) = query_sql.as_deref() {
-        // Ícone de tabela, realce como no "Execução" e fundo de destaque. O
-        // `…` do corte sai apagado, fora do texto realçado.
+/// Lateral direita, espelhando a esquerda: chips das abas e a lista da aba
+/// ativa (hoje só queries, com as instâncias criadas por `n`).
+fn draw_lateral_direita(
+    frame: &mut Frame,
+    area: Rect,
+    right_tab: RightTab,
+    queries: &[QueryInstance],
+    queries_state: &mut ListState,
+    focus: Focus,
+) {
+    let [chips_dir, lista_dir] =
+        Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(area);
+    frame.render_widget(
+        Paragraph::new(right_chips_line(right_tab, focus == Focus::Queries)).centered(),
+        chips_dir,
+    );
+    let itens_dir: Vec<ListItem> = queries.iter().map(query_item).collect();
+    let list_dir = List::new(itens_dir)
+        .block(panel(String::new(), focus == Focus::Queries))
+        .highlight_symbol("❯ ")
+        .highlight_style(theme::selected());
+    frame.render_stateful_widget(list_dir, lista_dir, queries_state);
+}
+
+/// Centro: editor da query aberta ou a grade de registros. A faixa da busca
+/// executada só existe no modo grade, sempre reservada para não pular.
+#[allow(clippy::too_many_arguments)]
+fn draw_centro(
+    frame: &mut Frame,
+    area: Rect,
+    data: &Option<TableData>,
+    query_sql: Option<&str>,
+    table_state: &mut TableState,
+    column: Option<usize>,
+    hscroll: usize,
+    larguras: &[usize],
+    mode: &Mode,
+    focus: Focus,
+    database: &str,
+    query_aberta: Option<&QueryInstance>,
+) {
+    if let Some(query) = query_aberta {
+        draw_query_editor(frame, area, query, database, focus == Focus::Data);
+        return;
+    }
+    let [faixa, main] = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(area);
+    if let Some(sql) = query_sql {
         let icone = format!("{ICONE_TABELA} ");
         let disponivel = (faixa.width as usize).saturating_sub(largura(&icone));
         let cortado =
@@ -165,52 +329,19 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         let linha = Line::from(spans);
         frame.render_widget(Paragraph::new(linha).style(theme::selected()), faixa);
     }
-
     grid::draw_data(
         frame,
         main,
         data.as_ref(),
-        *focus == Focus::Data,
+        focus == Focus::Data,
         table_state,
         grid::Posicao {
-            coluna: *column,
-            rolagem: *hscroll,
+            coluna: column,
+            rolagem: hscroll,
             larguras,
         },
         mode,
     );
-
-    // A lista aberta, em qualquer pop-up, fica com as teclas do rodapé.
-    let lista_aberta = database_edit
-        .as_ref()
-        .is_some_and(|edit| edit.picker.is_some())
-        || table_edit
-            .as_ref()
-            .is_some_and(|edit| edit.picker.is_some());
-    let teclas = if commands.is_some() {
-        popup::commands_keys()
-    } else if lista_aberta {
-        PICKER_KEYS
-    } else if let Some(edit) = table_edit.as_ref() {
-        popup::table_keys(edit)
-    } else if connection_edit.is_some() || database_edit.is_some() {
-        POPUP_KEYS
-    } else {
-        keys(*mode, *focus)
-    };
-    draw_footer(frame, footer, status, teclas, data, *end_reached);
-    popup::draw_overlays(
-        frame,
-        frame.area(),
-        mode,
-        edit.as_ref(),
-        data.as_ref(),
-        current.as_deref(),
-    );
-    popup::draw_connection_edit(frame, frame.area(), connection_edit.as_ref());
-    popup::draw_database_edit(frame, frame.area(), database_edit.as_ref());
-    popup::draw_table_edit(frame, frame.area(), table_edit.as_ref());
-    popup::draw_commands(frame, frame.area(), commands.as_ref(), tables);
 }
 
 fn draw_header(frame: &mut Frame, area: Rect, server: &str, database: &str, table: Option<&str>) {
@@ -274,6 +405,9 @@ fn draw_footer(
 /// Atalhos mostrados no rodapé: o modo decide o texto e, na cascata, o `e`
 /// entra como ação de edição do nível ativo.
 fn keys(mode: Mode, focus: Focus) -> &'static str {
+    if focus == Focus::Queries {
+        return QUERIES_KEYS;
+    }
     match mode {
         Mode::Rows if matches!(focus, Focus::Connections | Focus::Databases | Focus::Tables) => {
             KEYS_WITH_EDIT
@@ -349,6 +483,94 @@ fn tabela_item(table: &String) -> ListItem<'static> {
         Span::styled(format!("{ICONE_TABELA} "), theme::accent()),
         Span::styled(table.clone(), theme::text()),
     ]))
+}
+
+/// Ícone Nerd Font da aba de queries na lateral direita.
+const ICONE_QUERY: char = '\u{f120}'; // terminal
+
+/// Linha de chips da lateral direita, espelhando a esquerda. Hoje só tem a
+/// aba queries; as próximas entram em `RightTab::ALL` e aparecem aqui.
+fn right_chips_line(ativa: RightTab, focada: bool) -> Line<'static> {
+    let mut spans = Vec::new();
+    for (indice, aba) in RightTab::ALL.iter().enumerate() {
+        if indice > 0 {
+            spans.push(Span::styled(" ", theme::muted()));
+        }
+        if *aba == ativa && focada {
+            spans.push(Span::styled(
+                format!("{} {} ", aba.icone(), aba.titulo()),
+                theme::accent(),
+            ));
+        } else if *aba == ativa {
+            spans.push(Span::styled(
+                format!("{} {} ", aba.icone(), aba.titulo()),
+                theme::text(),
+            ));
+        } else {
+            spans.push(Span::styled("[", theme::muted()));
+            spans.push(Span::styled(format!("{} ", aba.icone()), theme::accent()));
+            spans.push(Span::styled(aba.atalho().to_string(), theme::accent()));
+            spans.push(Span::styled("]", theme::muted()));
+        }
+    }
+    // Dica de criação sempre visível, como o `e` da cascata.
+    spans.push(Span::styled(" [", theme::muted()));
+    spans.push(Span::styled("n", theme::accent()));
+    spans.push(Span::styled("]", theme::muted()));
+    Line::from(spans)
+}
+
+/// Uma instância de query como item da lista da direita: ícone, nome e
+/// tamanho (ou `vazio` ao criar).
+fn query_item(query: &crate::app::QueryInstance) -> ListItem<'static> {
+    ListItem::new(Line::from(vec![
+        Span::styled(format!("{ICONE_QUERY} "), theme::accent()),
+        Span::styled(query.nome.clone(), theme::text()),
+        Span::styled(" ", theme::muted()),
+        Span::styled(query.resumo(), theme::muted()),
+    ]))
+}
+
+/// Editor vazio da query no centro, no lugar da grade. O título traz o
+/// relevante da instância: nome, schema atual e tamanho em chars/linhas;
+/// vazio mostra a dica em vez do texto.
+fn draw_query_editor(
+    frame: &mut Frame,
+    area: Rect,
+    query: &crate::app::QueryInstance,
+    database: &str,
+    focused: bool,
+) {
+    let schema = if database.is_empty() {
+        "(nenhum)"
+    } else {
+        database
+    };
+    let title = if query.sql.is_empty() {
+        format!("query · {} · schema: {schema} · vazio", query.nome)
+    } else {
+        let chars = query.sql.chars().count();
+        let linhas = query.sql.lines().count().max(1);
+        format!(
+            "query · {} · schema: {schema} · {chars} chars · {linhas} linhas",
+            query.nome
+        )
+    };
+    if query.sql.is_empty() {
+        let dica = Paragraph::new("digite o SQL · esc volta às queries")
+            .block(panel(title, focused))
+            .style(theme::muted());
+        frame.render_widget(dica, area);
+        return;
+    }
+    let mut texto = query.sql.clone();
+    if focused {
+        texto.push('█');
+    }
+    let editor = Paragraph::new(texto)
+        .block(panel(title, focused))
+        .style(theme::text());
+    frame.render_widget(editor, area);
 }
 
 /// Moldura de painel, usada pela grade e pela lista de tabelas.

@@ -50,6 +50,13 @@ impl App {
             self.on_key_commands(key);
             return;
         }
+        // No editor de query, o centro é texto: tudo digita e o `esc`
+        // volta às queries. O comando master não abre aqui (`;`/`#` são
+        // texto do rascunho).
+        if self.is_query_editor() && self.focus == Focus::Data && self.mode == Mode::Rows {
+            self.on_key_query_editor(key);
+            return;
+        }
         // `ctrl+p` abre o comando master a partir da navegação e das colunas,
         // sem interromper uma edição ou confirmação em andamento. Só na tela
         // de tabelas (lista ou registros): é lá que o SQL filtra os dados.
@@ -312,9 +319,11 @@ impl App {
     }
 
     /// O comando master só abre na tela de tabelas, na lista ou nos
-    /// registros: é lá que o SQL filtra os dados.
+    /// registros: é lá que o SQL filtra os dados. No editor de query nem
+    /// nas queries ele abre (`;`/`#` lá são texto).
     fn pode_abrir_comandos(&self) -> bool {
-        matches!(self.mode, Mode::Rows | Mode::Columns)
+        !self.is_query_editor()
+            && matches!(self.mode, Mode::Rows | Mode::Columns)
             && matches!(self.focus, Focus::Tables | Focus::Data)
     }
 
@@ -350,16 +359,62 @@ impl App {
         true
     }
 
+    /// Editor da query no centro: tudo digita no rascunho aberto (`enter`
+    /// quebra linha) e o `esc` volta à lista de queries. Sem atalhos de
+    /// letra aqui: `q`, `c`, `j`... são texto do SQL.
+    fn on_key_query_editor(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Esc => self.focus = Focus::Queries,
+            KeyCode::Enter => {
+                if let Some(index) = self.active_query
+                    && let Some(query) = self.queries.get_mut(index)
+                {
+                    query.sql.push('\n');
+                }
+            }
+            KeyCode::Backspace => {
+                if let Some(index) = self.active_query
+                    && let Some(query) = self.queries.get_mut(index)
+                {
+                    if is_alt_backspace(key) {
+                        delete_prev_word(&mut query.sql, 0);
+                    } else {
+                        query.sql.pop();
+                    }
+                }
+            }
+            KeyCode::Char(c)
+                if !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                if let Some(index) = self.active_query
+                    && let Some(query) = self.queries.get_mut(index)
+                {
+                    query.sql.push(c);
+                }
+            }
+            _ => {}
+        }
+    }
+
     fn on_key_rows(&mut self, key: KeyEvent) {
+        // Na lista de queries, só navegação e gestão de instâncias.
+        if self.focus == Focus::Queries {
+            self.on_key_queries(key);
+            return;
+        }
         match key.code {
             KeyCode::Char('q') => self.ask_quit(),
             // `esc` sobe um nível da cascata conexões → bancos → tabelas →
             // registros; na raiz (conexões), pede confirmação para sair.
             KeyCode::Esc => self.up_level(),
-            // As letras dos chips levam direto ao nível.
+            // As letras dos chips levam direto ao nível (`u` é o de qUeries,
+            // já que o `q` sai da aplicação).
             KeyCode::Char('c') => self.focus_level(Focus::Connections),
             KeyCode::Char('b') => self.focus_level(Focus::Databases),
             KeyCode::Char('t') => self.focus_level(Focus::Tables),
+            KeyCode::Char('u') => self.focus_level(Focus::Queries),
             // `h`/`l` andam na horizontal pelas colunas da grade, que podem não
             // caber todas na tela.
             KeyCode::Left | KeyCode::Char('h') if self.focus == Focus::Data => {
@@ -385,13 +440,43 @@ impl App {
                 Focus::Databases => self.use_selected_database(),
                 Focus::Tables => self.open_selected_table(),
                 Focus::Data => self.enter_columns(),
+                // As queries saem cedo em `on_key_queries`; aqui é inalcançável.
+                Focus::Queries => {}
             },
             _ => {}
         }
     }
 
-    /// Sobe um nível da cascata; na raiz, pede confirmação para sair.
+    /// Lista da direita: `j`/`k` andam, `enter` abre o editor no centro,
+    /// `n` cria uma instância vazia e `d` apaga a selecionada.
+    fn on_key_queries(&mut self, key: KeyEvent) {
+        match key.code {
+            KeyCode::Char('q') => self.ask_quit(),
+            KeyCode::Esc => self.up_level(),
+            KeyCode::Char('c') => self.focus_level(Focus::Connections),
+            KeyCode::Char('b') => self.focus_level(Focus::Databases),
+            KeyCode::Char('t') => self.focus_level(Focus::Tables),
+            KeyCode::Char('u') => self.focus_level(Focus::Queries),
+            KeyCode::Down | KeyCode::Char('j') => self.move_selection(1),
+            KeyCode::Up | KeyCode::Char('k') => self.move_selection(-1),
+            KeyCode::PageDown => self.move_selection(PAGE),
+            KeyCode::PageUp => self.move_selection(-PAGE),
+            KeyCode::Char('g') => self.select_edge(false),
+            KeyCode::Char('G') => self.select_edge(true),
+            KeyCode::Char('n') => self.new_query(),
+            KeyCode::Char('d') => self.delete_selected_query(),
+            KeyCode::Enter => self.open_selected_query(),
+            _ => {}
+        }
+    }
+
+    /// Sobe um nível da cascata; na raiz, pede confirmação para sair. Do
+    /// editor de query, o `esc` volta à lista de queries, de onde ele veio.
     fn up_level(&mut self) {
+        if self.is_query_editor() && self.focus == Focus::Data {
+            self.focus = Focus::Queries;
+            return;
+        }
         match self.focus.above() {
             Some(nivel) => self.focus = nivel,
             None => self.ask_quit(),
@@ -399,12 +484,17 @@ impl App {
     }
 
     /// Leva o foco direto ao nível pedido pelo chip, saindo do modo coluna.
+    /// Ir às queries sem nenhuma instância cria a primeira na hora, para o
+    /// centro nunca abrir vazio sem dono.
     fn focus_level(&mut self, focus: Focus) {
         if self.focus == Focus::Data {
             self.column = None;
             self.mode = Mode::Rows;
         }
         self.focus = focus;
+        if focus == Focus::Queries && self.queries.is_empty() {
+            self.new_query();
+        }
     }
 
     fn on_key_columns(&mut self, key: KeyEvent) {
@@ -478,7 +568,11 @@ impl App {
     }
 
     /// Entra no modo horizontal, na primeira coluna do registro selecionado.
+    /// No editor de query não há colunas: o `enter` lá quebra linha.
     fn enter_columns(&mut self) {
+        if self.is_query_editor() {
+            return;
+        }
         let Some(data) = self.data.as_ref() else {
             return;
         };
@@ -563,6 +657,10 @@ impl App {
                 let next = step(self.list_state.selected(), delta, len);
                 self.list_state.select(next);
             }
+            Focus::Queries => {
+                let next = step(self.queries_state.selected(), delta, self.queries.len());
+                self.queries_state.select(next);
+            }
             Focus::Data => {
                 let len = self.row_count();
                 let atual = self.table_state.selected();
@@ -599,6 +697,12 @@ impl App {
                         .select(Some(if last { self.tables.len() - 1 } else { 0 }));
                 }
             }
+            Focus::Queries => {
+                if !self.queries.is_empty() {
+                    self.queries_state
+                        .select(Some(if last { self.queries.len() - 1 } else { 0 }));
+                }
+            }
             Focus::Data => {
                 let len = self.row_count();
                 if len > 0 {
@@ -614,7 +718,8 @@ impl App {
     }
 
     /// Enter na lista: abre a tabela selecionada; se ela já está aberta, o
-    /// segundo enter leva direto aos registros (sem precisar de `l`).
+    /// segundo enter leva direto aos registros (sem precisar de `l`). Abrir
+    /// (ou voltar a) uma tabela sempre fecha o editor de query.
     fn open_selected_table(&mut self) {
         let Some(table) = self
             .list_state
@@ -624,6 +729,7 @@ impl App {
         else {
             return;
         };
+        self.active_query = None;
         if self.current.as_deref() == Some(table.as_str()) && self.data.is_some() {
             self.focus = Focus::Data;
             return;
@@ -632,6 +738,10 @@ impl App {
     }
 
     fn reload(&mut self) {
+        // No editor de query não há página para recarregar: `r` lá é texto.
+        if self.is_query_editor() {
+            return;
+        }
         if let Some(table) = self.current.clone() {
             self.load(table);
         }

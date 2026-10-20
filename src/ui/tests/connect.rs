@@ -72,9 +72,7 @@ fn chips_mostram_os_niveis_na_ordem_com_o_ativo_expandido() {
     app.databases = vec![String::from("app")];
     app.focus = Focus::Databases;
     let tela = screen(&mut app);
-    let conexoes = tela
-        .find("[\u{f1e6} c]")
-        .expect("chip de conexões");
+    let conexoes = tela.find("[\u{f1e6} c]").expect("chip de conexões");
     let bancos = tela.find("bancos (1)").expect("bancos ativo");
     let tabelas = tela.find("[\u{f0ce} t]").expect("chip de tabelas");
     assert!(conexoes < bancos && bancos < tabelas, "{tela}");

@@ -16,6 +16,7 @@ mod popup_commands;
 mod popup_connection;
 mod popup_database;
 mod popup_table;
+mod queries;
 
 /// App na tela inicial, sem histórico em disco.
 fn app_quick() -> App {

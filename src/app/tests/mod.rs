@@ -15,6 +15,7 @@ mod pagination;
 mod popup_connection;
 mod popup_database;
 mod popup_table;
+mod queries;
 
 fn app() -> App {
     let mut app = App::new(Some("mysql://user@localhost/app"));
