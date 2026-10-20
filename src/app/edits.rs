@@ -260,11 +260,11 @@ impl TableEdit {
 
     /// Apaga a palavra anterior (`alt+backspace`) do campo de texto com foco.
     pub fn delete_word(&mut self) {
-        use super::state::apagar_palavra_anterior;
+        use super::state::delete_prev_word;
         match self.field {
-            TableField::Name => apagar_palavra_anterior(&mut self.values.name, 0),
-            TableField::Comment => apagar_palavra_anterior(&mut self.values.comment, 0),
-            TableField::AutoIncrement => apagar_palavra_anterior(&mut self.auto_increment, 0),
+            TableField::Name => delete_prev_word(&mut self.values.name, 0),
+            TableField::Comment => delete_prev_word(&mut self.values.comment, 0),
+            TableField::AutoIncrement => delete_prev_word(&mut self.auto_increment, 0),
             _ => {}
         }
     }

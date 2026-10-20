@@ -279,7 +279,7 @@ impl Commands {
     /// prefixo fixo. Descarta espaços no fim e depois a palavra até o
     /// espaço anterior.
     pub fn delete_word(&mut self) {
-        apagar_palavra_anterior(&mut self.input, 1);
+        delete_prev_word(&mut self.input, 1);
         self.sugestao = 0;
     }
 }
@@ -288,22 +288,19 @@ impl Commands {
 /// `preservar_chars` protege o começo do texto (ex.: o prefixo fixo `;`/`#`
 /// do comando master, que nunca sai). Primeiro descarta os espaços no fim e
 /// depois a palavra até o espaço anterior ou o limite preservado.
-pub(crate) fn apagar_palavra_anterior(texto: &mut String, preservar_chars: usize) {
-    if texto.chars().count() <= preservar_chars {
+pub(crate) fn delete_prev_word(text: &mut String, preserve: usize) {
+    if text.chars().count() <= preserve {
         return;
     }
-    while texto.chars().count() > preservar_chars
-        && texto.chars().next_back().is_some_and(|c| c.is_whitespace())
+    while text.chars().count() > preserve
+        && text.chars().next_back().is_some_and(|c| c.is_whitespace())
     {
-        texto.pop();
+        text.pop();
     }
-    while texto.chars().count() > preservar_chars
-        && texto
-            .chars()
-            .next_back()
-            .is_some_and(|c| !c.is_whitespace())
+    while text.chars().count() > preserve
+        && text.chars().next_back().is_some_and(|c| !c.is_whitespace())
     {
-        texto.pop();
+        text.pop();
     }
 }
 

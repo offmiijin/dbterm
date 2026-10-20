@@ -3,7 +3,7 @@
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::App;
-use super::state::{CommandTab, Edit, Focus, Mode, Picker, Screen, Status, apagar_palavra_anterior};
+use super::state::{CommandTab, Edit, Focus, Mode, Picker, Screen, Status, delete_prev_word};
 use crate::config::Field;
 
 /// Quantas linhas PgUp/PgDn andam.
@@ -92,7 +92,7 @@ impl App {
             KeyCode::BackTab | KeyCode::Up => self.move_field(-1, &Field::ALL),
             KeyCode::Backspace => {
                 if is_alt_backspace(key) {
-                    apagar_palavra_anterior(self.connection.value_mut(self.field), 0);
+                    delete_prev_word(self.connection.value_mut(self.field), 0);
                 } else {
                     self.connection.value_mut(self.field).pop();
                 }
@@ -134,7 +134,7 @@ impl App {
                 if let Some(edit) = self.connection_edit.as_mut() {
                     let field = edit.field;
                     if is_alt_backspace(key) {
-                        apagar_palavra_anterior(edit.connection.value_mut(field), 0);
+                        delete_prev_word(edit.connection.value_mut(field), 0);
                     } else {
                         edit.connection.value_mut(field).pop();
                     }
@@ -428,7 +428,7 @@ impl App {
             KeyCode::Backspace => {
                 if let Some(edit) = self.edit.as_mut() {
                     if is_alt_backspace(key) {
-                        apagar_palavra_anterior(&mut edit.input, 0);
+                        delete_prev_word(&mut edit.input, 0);
                     } else {
                         edit.input.pop();
                     }
