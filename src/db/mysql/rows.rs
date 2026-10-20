@@ -46,6 +46,40 @@ pub(crate) fn rows(
     })
 }
 
+/// Executa o SQL livre do comando master e devolve o retorno como página para
+/// a grade. Não há paginação nem chave primária: o resultado é leitura.
+///
+/// Comandos que não devolvem linhas (ex.: `UPDATE`) voltam com zero colunas;
+/// a UI mostra um aviso e mantém a grade como está.
+pub(crate) fn query(conn: &mut Conn, sql: &str) -> mysql::Result<TableData> {
+    let mut result = conn.query_iter(sql)?;
+    let columns = result.columns();
+    let kinds: Vec<ColumnKind> = columns
+        .as_ref()
+        .iter()
+        .map(|column| kind_of(column.column_type()))
+        .collect();
+    let columns: Vec<String> = columns
+        .as_ref()
+        .iter()
+        .map(|column| column.name_str().into_owned())
+        .collect();
+
+    let mut rows = Vec::new();
+    if let Some(set) = result.iter() {
+        for row in set {
+            rows.push(row?.unwrap().iter().map(cell).collect());
+        }
+    }
+    drop(result);
+    Ok(TableData {
+        columns,
+        kinds,
+        rows,
+        primary_key: Vec::new(),
+    })
+}
+
 /// `SELECT *` de uma página da tabela. O identificador não vai como parâmetro:
 /// escapamos com crase dobrada.
 fn rows_sql(table: &str, offset: usize, limit: usize) -> String {

@@ -23,9 +23,11 @@ use crate::history::Saved;
 use crate::theme;
 use crate::view::largura;
 
-const KEYS: &str = "q sair · c/b/t nível · esc subir · j/k mover · enter abrir · h/l colunas · r recarregar · g/G topo/fim";
+const KEYS: &str = "q sair · c/b/t nível · esc subir · j/k mover · enter abrir · h/l colunas · r recarregar · g/G topo/fim · ; sql";
 /// Na cascata o `e` entra como ação de edição do nível ativo.
 const KEYS_WITH_EDIT: &str = "q sair · c/b/t nível · esc subir · e editar · j/k mover · enter abrir · r recarregar · g/G topo/fim";
+/// Na lista de tabelas o `;` abre o comando master direto na aba SQL.
+const KEYS_TABLES: &str = "q sair · c/b/t nível · esc subir · e editar · j/k mover · enter abrir · r recarregar · g/G topo/fim · ; sql";
 /// Teclas dos pop-ups de edição (conexão, banco e tabela).
 const POPUP_KEYS: &str = "ctrl+s salvar · esc cancelar";
 /// Teclas da lista de opções aberta sobre um pop-up de edição.
@@ -88,6 +90,7 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         connection_edit,
         database_edit,
         table_edit,
+        commands,
         history,
         ..
     } = app;
@@ -163,7 +166,9 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         || table_edit
             .as_ref()
             .is_some_and(|edit| edit.picker.is_some());
-    let teclas = if lista_aberta {
+    let teclas = if commands.is_some() {
+        popup::commands_keys()
+    } else if lista_aberta {
         PICKER_KEYS
     } else if let Some(edit) = table_edit.as_ref() {
         popup::table_keys(edit)
@@ -184,6 +189,7 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
     popup::draw_connection_edit(frame, frame.area(), connection_edit.as_ref());
     popup::draw_database_edit(frame, frame.area(), database_edit.as_ref());
     popup::draw_table_edit(frame, frame.area(), table_edit.as_ref());
+    popup::draw_commands(frame, frame.area(), commands.as_ref());
 }
 
 fn draw_header(frame: &mut Frame, area: Rect, server: &str, database: &str, table: Option<&str>) {
@@ -248,9 +254,9 @@ fn draw_footer(
 /// entra como ação de edição do nível ativo.
 fn keys(mode: Mode, focus: Focus) -> &'static str {
     match mode {
-        Mode::Rows if matches!(focus, Focus::Connections | Focus::Databases | Focus::Tables) => {
-            KEYS_WITH_EDIT
-        }
+        Mode::Rows if matches!(focus, Focus::Connections | Focus::Databases) => KEYS_WITH_EDIT,
+        // Na lista de tabelas o comando master (`;`) filtra os dados.
+        Mode::Rows if focus == Focus::Tables => KEYS_TABLES,
         Mode::Rows => KEYS,
         Mode::Columns => "h/l coluna · enter editar · esc voltar",
         Mode::Edit => "enter continuar · esc cancelar",

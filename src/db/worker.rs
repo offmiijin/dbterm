@@ -7,7 +7,7 @@ use std::thread;
 use mysql::{Conn, Opts};
 
 use super::mysql::{
-    alter_database, alter_table, database_info, databases, rows, table_info, tables, update,
+    alter_database, alter_table, database_info, databases, query, rows, table_info, tables, update,
     use_database,
 };
 use super::{Request, Response};
@@ -145,6 +145,13 @@ fn worker(tx: &Sender<Response>, rx: &Receiver<Request>) {
                 Some(conn) => match update(conn, &table, &column, value, &key) {
                     Ok(()) => Response::Updated { table },
                     Err(err) => Response::Failed(err),
+                },
+                None => sem_conexao(),
+            },
+            Request::Query { sql } => match conn.as_mut() {
+                Some(conn) => match query(conn, &sql) {
+                    Ok(data) => Response::Query { data },
+                    Err(err) => Response::Failed(err.to_string()),
                 },
                 None => sem_conexao(),
             },

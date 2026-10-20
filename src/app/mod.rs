@@ -17,7 +17,8 @@ mod state;
 mod tests;
 
 pub use state::{
-    ConnectionEdit, DatabaseEdit, Edit, Focus, Mode, Picker, Screen, Status, TableEdit,
+    CommandTab, Commands, ConnectionEdit, DatabaseEdit, Edit, Focus, Mode, Picker, Screen, Status,
+    TableEdit,
 };
 
 use std::io;
@@ -69,6 +70,8 @@ pub struct App {
     pub database_edit: Option<DatabaseEdit>,
     /// Edição da tabela selecionada, aberta pelo `e` nas tabelas.
     pub table_edit: Option<TableEdit>,
+    /// Comando master, aberto com `ctrl+p`. A primeira aba é a SQL.
+    pub commands: Option<Commands>,
     pub should_quit: bool,
     /// Seleção nas listas de conexões, bancos e tabelas. Só a do nível ativo
     /// aparece, mas cada uma guarda onde o usuário parou.
@@ -129,6 +132,7 @@ impl App {
             connection_edit: None,
             database_edit: None,
             table_edit: None,
+            commands: None,
             should_quit: false,
             connections_state: ListState::default(),
             databases_state: ListState::default(),

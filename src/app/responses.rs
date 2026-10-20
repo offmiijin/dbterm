@@ -113,6 +113,7 @@ impl App {
                 self.status = super::state::Status::Ready;
             }
             Response::Updated { table } => self.load(table),
+            Response::Query { data } => self.apply_query(data),
             Response::Failed(message) => {
                 // Uma página que falhou não pode deixar a próxima travada.
                 self.loading_more = false;
@@ -142,6 +143,30 @@ impl App {
         if let Some(atual) = self.data.as_mut() {
             atual.rows.extend(data.rows);
         }
+        self.status = super::state::Status::Ready;
+    }
+
+    /// O retorno do SQL livre vira a grade: sem paginação, sem edição por
+    /// célula (sem chave primária) e com o foco nos registros. Sem colunas, o
+    /// comando não devolveu linhas e a grade fica como está.
+    pub(super) fn apply_query(&mut self, data: TableData) {
+        if data.columns.is_empty() {
+            self.status =
+                super::state::Status::Notice(String::from("consulta executada (sem retorno)"));
+            return;
+        }
+        let linhas = data.rows.len();
+        self.larguras = view::larguras(&data);
+        self.data = Some(data);
+        self.end_reached = true;
+        self.loading_more = false;
+        self.table_state
+            .select(if linhas == 0 { None } else { Some(0) });
+        self.column = None;
+        self.hscroll = 0;
+        self.mode = super::state::Mode::Rows;
+        self.edit = None;
+        self.focus = super::state::Focus::Data;
         self.status = super::state::Status::Ready;
     }
 

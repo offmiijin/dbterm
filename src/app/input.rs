@@ -3,7 +3,7 @@
 use ratatui::crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 
 use super::App;
-use super::state::{Edit, Focus, Mode, Picker, Screen, Status};
+use super::state::{CommandTab, Edit, Focus, Mode, Picker, Screen, Status};
 use crate::config::Field;
 
 /// Quantas linhas PgUp/PgDn andam.
@@ -43,6 +43,19 @@ impl App {
         }
         if self.table_edit.is_some() {
             self.on_key_table_edit(key);
+            return;
+        }
+        // O comando master fica por cima da grade, como os outros pop-ups.
+        if self.commands.is_some() {
+            self.on_key_commands(key);
+            return;
+        }
+        // `ctrl+p` abre o comando master e `;` vai direto para a aba SQL, a
+        // partir da navegação e das colunas, sem interromper uma edição ou
+        // confirmação em andamento. Só na tela de tabelas (lista ou
+        // registros): é lá que o SQL filtra os dados.
+        if (is_commands(key) || is_sql(key)) && self.pode_abrir_comandos() {
+            self.open_commands();
             return;
         }
         match self.mode {
@@ -237,6 +250,50 @@ impl App {
         };
         let campos = edit.fields();
         edit.field = next(edit.field, delta, &campos);
+    }
+
+    /// Comando master: `tab` troca de aba, o texto entra no fim da linha e
+    /// `ctrl+enter` executa a aba ativa. `esc` fecha sem executar.
+    fn on_key_commands(&mut self, key: KeyEvent) {
+        if is_execute(key) {
+            self.execute_commands();
+            return;
+        }
+        match key.code {
+            KeyCode::Esc => self.commands = None,
+            KeyCode::Tab => self.move_commands_tab(1),
+            KeyCode::BackTab => self.move_commands_tab(-1),
+            KeyCode::Backspace => {
+                if let Some(commands) = self.commands.as_mut() {
+                    commands.backspace();
+                }
+            }
+            KeyCode::Char(c)
+                if !key
+                    .modifiers
+                    .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT) =>
+            {
+                if let Some(commands) = self.commands.as_mut() {
+                    commands.type_char(c);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// O comando master só abre na tela de tabelas, na lista ou nos
+    /// registros: é lá que o SQL filtra os dados.
+    fn pode_abrir_comandos(&self) -> bool {
+        matches!(self.mode, Mode::Rows | Mode::Columns)
+            && matches!(self.focus, Focus::Tables | Focus::Data)
+    }
+
+    /// Anda entre as abas do comando master, dando a volta nas pontas.
+    fn move_commands_tab(&mut self, delta: isize) {
+        let Some(commands) = self.commands.as_mut() else {
+            return;
+        };
+        commands.tab = next(commands.tab, delta, &CommandTab::ALL);
     }
 
     fn on_key_rows(&mut self, key: KeyEvent) {
@@ -546,6 +603,31 @@ pub(super) fn next<T: Copy + PartialEq>(atual: T, delta: isize, itens: &[T]) -> 
 fn is_save(key: KeyEvent) -> bool {
     matches!(key.code, KeyCode::Char('s') | KeyCode::Char('S'))
         && key.modifiers.contains(KeyModifiers::CONTROL)
+}
+
+/// Abertura do comando master: `ctrl+p`, como o terminal entrega em modo
+/// bruto (`Char('p')` com `CONTROL`).
+fn is_commands(key: KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Char('p') | KeyCode::Char('P'))
+        && key.modifiers.contains(KeyModifiers::CONTROL)
+}
+
+/// Atalho da aba SQL: o `;` puro (sem `ctrl`/`alt`) abre o comando master
+/// direto nela. Dentro do pop-up ele continua sendo texto.
+fn is_sql(key: KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Char(';'))
+        && !key
+            .modifiers
+            .intersects(KeyModifiers::CONTROL | KeyModifiers::ALT)
+}
+
+/// Execução da aba ativa do comando master: `ctrl+enter`.
+///
+/// Sem o protocolo estendido de teclado, o terminal entrega o `ctrl+enter`
+/// como um `enter` comum (o `crossterm` recebe só o `\r`); por isso o `enter`
+/// puro também executa. No pop-up de linha única ele não tem outro papel.
+fn is_execute(key: KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Enter)
 }
 
 /// Direção pedida por `ctrl+h/j/k/l` nos pop-ups de edição: `h`/`k` voltam um

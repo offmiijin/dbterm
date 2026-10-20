@@ -68,6 +68,81 @@ pub enum Mode {
     ConfirmQuit,
 }
 
+/// Aba do pop-up "Comandos", aberto com `ctrl+p`.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CommandTab {
+    /// Filtra a grade com SQL livre (ex.: `;select COUNT(*) from users`).
+    Sql,
+}
+
+impl CommandTab {
+    /// Todas as abas, na ordem em que aparecem no pop-up.
+    pub const ALL: [CommandTab; 1] = [CommandTab::Sql];
+
+    /// Rótulo mostrado na linha de abas.
+    pub fn titulo(self) -> &'static str {
+        match self {
+            CommandTab::Sql => "SQL",
+        }
+    }
+
+    /// Tecla que abre a aba direto da navegação, sem passar pelo `ctrl+p`.
+    pub fn atalho(self) -> char {
+        match self {
+            CommandTab::Sql => ';',
+        }
+    }
+}
+
+/// Comando master em edição: a aba ativa e o texto digitado.
+///
+/// Na aba SQL o texto começa com `;`, que marca o modo SQL e não faz parte
+/// da consulta enviada ao servidor.
+#[derive(Debug)]
+pub struct Commands {
+    pub tab: CommandTab,
+    pub input: String,
+}
+
+impl Default for Commands {
+    /// Igual a [`Commands::new`]: aba SQL com o `;` inicial.
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Commands {
+    /// Abre o pop-up na primeira aba (SQL), já com o `;`.
+    pub fn new() -> Self {
+        Self {
+            tab: CommandTab::Sql,
+            input: String::from(";"),
+        }
+    }
+
+    /// A consulta a executar: o texto sem o `;` inicial e sem espaços nas
+    /// pontas. Vazio quando só há o `;`.
+    pub fn sql(&self) -> String {
+        self.input
+            .strip_prefix(';')
+            .unwrap_or(self.input.as_str())
+            .trim()
+            .to_owned()
+    }
+
+    /// Digita no fim da linha, onde fica o cursor.
+    pub fn type_char(&mut self, caractere: char) {
+        self.input.push(caractere);
+    }
+
+    /// Apaga o último caractere, sem tirar o `;` inicial da aba SQL.
+    pub fn backspace(&mut self) {
+        if self.input.len() > 1 {
+            self.input.pop();
+        }
+    }
+}
+
 /// Edição em andamento de uma célula.
 #[derive(Debug)]
 pub struct Edit {

@@ -243,6 +243,8 @@ pub enum Request {
         offset: usize,
         limit: usize,
     },
+    /// Executa o SQL livre do comando master e mostra o retorno na grade.
+    Query { sql: String },
     /// Grava `value` (`None` = `NULL`) na coluna `column` da linha identificada
     /// pelos valores atuais da chave primária.
     Update {
@@ -288,6 +290,10 @@ pub enum Response {
     /// O `UPDATE` foi aplicado; a UI recarrega a tabela.
     Updated {
         table: String,
+    },
+    /// O SQL livre do comando master voltou com linhas para a grade.
+    Query {
+        data: TableData,
     },
     Failed(String),
 }

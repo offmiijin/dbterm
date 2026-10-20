@@ -11,4 +11,4 @@ mod values;
 
 pub(crate) use catalog::{database_info, databases, table_info, tables};
 pub(crate) use ddl::{alter_database, alter_table};
-pub(crate) use rows::{rows, update, use_database};
+pub(crate) use rows::{query, rows, update, use_database};

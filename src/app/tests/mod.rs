@@ -7,6 +7,7 @@ use crate::db::{Charset, Collation, ColumnKind, DatabaseInfo, ROW_LIMIT, Respons
 use crate::history::{History, Saved};
 
 mod cell_edit;
+mod commands;
 mod connect;
 mod data;
 mod navigation;

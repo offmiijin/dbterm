@@ -12,6 +12,7 @@ use crate::history::{History, Saved};
 mod browse;
 mod connect;
 mod grid;
+mod popup_commands;
 mod popup_connection;
 mod popup_database;
 mod popup_table;

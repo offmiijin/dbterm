@@ -4,12 +4,14 @@
 //! `table`, `picker`, `confirm`); os primitivos compartilhados — caixa
 //! centralizada, campo rotulado e tamanho legível — ficam aqui.
 
+mod commands;
 mod confirm;
 mod connection;
 mod database;
 mod picker;
 mod table;
 
+pub(super) use commands::{commands_keys, draw_commands};
 pub(super) use confirm::draw_overlays;
 pub(super) use connection::draw_connection_edit;
 pub(super) use database::draw_database_edit;

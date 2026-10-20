@@ -10,6 +10,27 @@ use super::App;
 use super::state::ConnectionEdit;
 
 impl App {
+    /// `ctrl+p`: abre o comando master na aba SQL, sempre com o `;` inicial.
+    pub(super) fn open_commands(&mut self) {
+        self.commands = Some(super::state::Commands::new());
+    }
+
+    /// `ctrl+enter` no comando master: executa a aba ativa. Sem SQL, o pop-up
+    /// fica aberto para a correção.
+    pub(super) fn execute_commands(&mut self) {
+        let Some(commands) = self.commands.as_ref() else {
+            return;
+        };
+        let sql = commands.sql();
+        if sql.is_empty() {
+            self.status = super::state::Status::Failed(String::from("informe o SQL"));
+            return;
+        }
+        self.commands = None;
+        self.status = super::state::Status::Loading(String::from("consulta"));
+        self.db.request(Request::Query { sql });
+    }
+
     /// Pede a página seguinte quando a seleção encosta na última linha carregada.
     pub(super) fn load_next_page(&mut self) {
         if self.loading_more || self.end_reached {
