@@ -330,7 +330,7 @@ fn draw_lateral_direita(
 }
 
 /// Centro: editor da query aberta ou a grade de registros. A faixa da busca
-/// executada só existe no modo grade, sempre reservada para não pular.
+/// fica reservada nos dois modos para o editor ter a altura da grade.
 #[allow(clippy::too_many_arguments)]
 fn draw_centro(
     frame: &mut Frame,
@@ -347,22 +347,26 @@ fn draw_centro(
     query_aberta: Option<&QueryInstance>,
     resultado: Option<&mut ResultadoQuery>,
 ) {
-    // Com execução, o centro divide: editor em cima e resultado embaixo
-    // cobrindo todo o inferior; sem ela, o editor ocupa tudo.
+    // A faixa da busca fica reservada nos dois modos para o editor começar
+    // na mesma linha da grade; sem busca ou sem query aberta, ela fica em
+    // branco mas ocupa a linha para não pular.
+    let [faixa, conteudo] =
+        Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(area);
+    // Com execução, o conteúdo divide: editor em cima e resultado embaixo;
+    // sem ela, o editor ocupa o conteúdo todo, na mesma altura da grade.
     if let Some(query) = query_aberta {
         match resultado {
             Some(result) => {
                 let [acima, abaixo] =
                     Layout::vertical([Constraint::Percentage(50), Constraint::Percentage(50)])
-                        .areas(area);
+                        .areas(conteudo);
                 draw_query_editor(frame, acima, query, database, focus == Focus::Data);
                 draw_resultado(frame, abaixo, result, focus == Focus::Resultado);
             }
-            None => draw_query_editor(frame, area, query, database, focus == Focus::Data),
+            None => draw_query_editor(frame, conteudo, query, database, focus == Focus::Data),
         }
         return;
     }
-    let [faixa, main] = Layout::vertical([Constraint::Length(1), Constraint::Min(1)]).areas(area);
     if let Some(sql) = query_sql {
         let icone = format!("{ICONE_TABELA} ");
         let disponivel = (faixa.width as usize).saturating_sub(largura(&icone));
@@ -383,7 +387,7 @@ fn draw_centro(
     }
     grid::draw_data(
         frame,
-        main,
+        conteudo,
         data.as_ref(),
         focus == Focus::Data,
         table_state,
