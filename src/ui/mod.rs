@@ -114,15 +114,15 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         Constraint::Length(1),
     ])
     .areas(frame.area());
-    // Três colunas só quando há espaço (34 + 20 + 28 = 82): em terminal
+    // Três colunas só quando há espaço (32 + 20 + 32 = 84): em terminal
     // estreito a direita se esconde e as queries aparecem na lateral
     // esquerda, no lugar da cascata, enquanto o foco está nelas.
     let mostrar_direita = body.width >= 90;
     if mostrar_direita {
         let [side, center, right] = Layout::horizontal([
-            Constraint::Length(34),
+            Constraint::Length(32),
             Constraint::Min(20),
-            Constraint::Length(28),
+            Constraint::Length(32),
         ])
         .areas(body);
         draw_lateral_esquerda(
@@ -154,7 +154,7 @@ fn draw_browse(frame: &mut Frame, app: &mut App) {
         );
     } else {
         let [side, main] =
-            Layout::horizontal([Constraint::Length(34), Constraint::Min(20)]).areas(body);
+            Layout::horizontal([Constraint::Length(32), Constraint::Min(20)]).areas(body);
         if *focus == Focus::Queries {
             draw_lateral_direita(frame, side, *right_tab, queries, queries_state, *focus);
         } else {

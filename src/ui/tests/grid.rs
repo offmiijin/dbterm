@@ -18,7 +18,8 @@ fn muitas_colunas_mostram_o_nome_do_cabecalho_inteiro() {
 fn rolagem_horizontal_alcanca_as_ultimas_colunas() {
     let mut app = app_com_muitas_colunas();
     app.hscroll = 13;
-    let screen = screen_at(&mut app, 100);
+    // 102 com as laterais de 32 equivale aos 100 de antes (centro de 38).
+    let screen = screen_at(&mut app, 102);
     assert!(screen.contains("coluna_5"), "{screen}");
     assert!(screen.contains("colunas 14-14/14"), "{screen}");
     assert!(!screen.contains("created_at"), "{screen}");

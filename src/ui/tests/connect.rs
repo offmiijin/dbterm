@@ -101,9 +101,9 @@ fn chips_ficam_centralizados_sobre_o_painel() {
     let terminal = terminal_de(&mut app, 80, 12);
     let buffer = terminal.backend().buffer();
 
-    // "[\u{f1e6} c] \u{f1c0} bancos (1) [\u{f0ce} t]" tem 24 colunas dentro das 34 do painel.
+    // "[\u{f1e6} c] \u{f1c0} bancos (1) [\u{f0ce} t]" tem 24 colunas dentro das 32 do painel.
     let (x, _) = achar(buffer, "[\u{f1e6} c]");
-    assert_eq!(x, (34 - 24) / 2);
+    assert_eq!(x, (32 - 24) / 2);
 }
 
 #[test]
