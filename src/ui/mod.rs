@@ -31,7 +31,7 @@ const KEYS_WITH_EDIT: &str = "q sair · c/b/t/u nível · esc subir · e editar 
 const QUERIES_KEYS: &str =
     "q sair · c/b/t nível · esc subir · j/k mover · enter abrir · n nova · d apagar · g/G topo/fim";
 /// Teclas do editor de query no centro (tudo digita no rascunho).
-const QUERY_EDITOR_KEYS: &str = "setas/ctrl+h,j,k,l movem · tab indenta · ctrl+enter executa · ctrl+r/ctrl+J resultados · esc volta";
+const QUERY_EDITOR_KEYS: &str = "setas/ctrl+h,j,k,l movem · tab indenta · ctrl+enter/ctrl+e/F5 executa · ctrl+r/ctrl+J resultados · esc volta";
 /// Teclas do painel de resultado abaixo do editor.
 const RESULTADO_KEYS: &str =
     "q sair · esc editor · j/k mover · h/l rolar · g/G topo/fim · r executar";

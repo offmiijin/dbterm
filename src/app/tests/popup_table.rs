@@ -78,6 +78,22 @@ fn ctrl_hjkl_anda_nos_campos_do_popup_da_tabela() {
 }
 
 #[test]
+fn ctrl_maiusculo_anda_nos_campos_como_minusculo() {
+    let mut app = app_com_popup_de_tabela();
+    let campo = |app: &App| app.table_edit.as_ref().expect("pop-up").field;
+
+    // Com o teclado estendido, o `shift` chega no maiúsculo.
+    app.on_key(ctrl('L'));
+    assert_eq!(campo(&app), TableField::Comment);
+    app.on_key(ctrl('J'));
+    assert_eq!(campo(&app), TableField::Engine);
+    app.on_key(ctrl('K'));
+    assert_eq!(campo(&app), TableField::Comment);
+    app.on_key(ctrl('H'));
+    assert_eq!(campo(&app), TableField::Name);
+}
+
+#[test]
 fn digitacao_edita_o_nome_e_o_comentario() {
     let mut app = app_com_popup_de_tabela();
 

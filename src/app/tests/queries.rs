@@ -146,6 +146,38 @@ fn ctrl_enter_executa_sem_fechar_o_editor() {
 }
 
 #[test]
+fn ctrl_e_executa_como_ctrl_enter() {
+    let mut app = app_com_grade();
+    app.on_key(tecla('u'));
+    app.on_key(tecla('n'));
+    for caractere in "select 1".chars() {
+        app.on_key(tecla(caractere));
+    }
+    app.on_key(ctrl('e'));
+
+    assert!(app.is_query_editor(), "o editor continua aberto");
+    let result = app.query_result.as_ref().expect("painel criado");
+    assert_eq!(result.sql, "select 1");
+    assert!(matches!(app.status, Status::Loading(ref o) if o == "consulta"));
+}
+
+#[test]
+fn f5_executa_como_ctrl_enter() {
+    let mut app = app_com_grade();
+    app.on_key(tecla('u'));
+    app.on_key(tecla('n'));
+    for caractere in "select 1".chars() {
+        app.on_key(tecla(caractere));
+    }
+    app.on_key(KeyEvent::from(KeyCode::F(5)));
+
+    assert!(app.is_query_editor(), "o editor continua aberto");
+    let result = app.query_result.as_ref().expect("painel criado");
+    assert_eq!(result.sql, "select 1");
+    assert!(matches!(app.status, Status::Loading(ref o) if o == "consulta"));
+}
+
+#[test]
 fn ctrl_enter_vazio_avisa_sem_fechar_o_editor() {
     let mut app = app_com_grade();
     app.on_key(tecla('u'));
